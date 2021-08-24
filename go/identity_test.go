@@ -12,8 +12,13 @@ func TestIdentityFromStringGarbage(t *testing.T) {
     }
 }
 
-var secret_string string = "cCOMZM5Z2HHCSVE65EDABQYXZHFA4AFH7NCTFG2VJ6V5OX7OXI33PMUQ";
+var secret_string   string = "cCOMZM5Z2HHCSVE65EDABQYXZHFA4AFH7NCTFG2VJ6V5OX7OXI33PMUQ";
 var identity_string string = "cDFXSA73D3H4MOM7HPVUYWUOABQI7D5ERUR7QXOQPJD2HOYYSJCIYFWY";
+var sequence_string string = "+P5DQ";
+var sequence_value Sequence = 18303
+var sequence2_string string = "+AE";
+var sequence2_value Sequence = 1
+var message_string string = "cDYCWQZLMNRXXO33SNRSNG"
 
 func TestSecret(t *testing.T) {
     sk, err := SecretFromString(secret_string);
@@ -54,3 +59,44 @@ func TestIdentity(t *testing.T) {
     }
 }
 
+func TestSequence(t *testing.T) {
+    sk, err := SequenceFromString(sequence_string);
+    if err != nil {
+        panic(err);
+    }
+
+    if sk != sequence_value {
+        t.Errorf("expected SequenceFromString(s) == sv")
+    }
+
+    if sk.String() != sequence_string {
+        t.Errorf("expected SequenceFromString(s).String() == s")
+    }
+}
+
+func TestSequence2(t *testing.T) {
+    sk, err := SequenceFromString(sequence2_string);
+    if err != nil {
+        panic(err);
+    }
+
+    if sk != sequence2_value {
+        t.Errorf("expected SequenceFromString(s) == sv")
+    }
+
+    if sk.String() != sequence2_string {
+        t.Errorf("expected SequenceFromString(s).String() == s")
+    }
+}
+
+
+func TestMessage(t *testing.T) {
+    sk, err := MessageFromString(message_string);
+    if err != nil {
+        panic(err);
+    }
+
+    if sk.String() != message_string{
+        t.Errorf("expected MessageFromString(s).String() == s")
+    }
+}

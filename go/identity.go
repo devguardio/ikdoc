@@ -11,6 +11,7 @@ import (
     "strconv"
     "golang.org/x/crypto/curve25519"
     "golang.org/x/crypto/ed25519"
+    "encoding/binary"
 
     x25519   "github.com/oasisprotocol/curve25519-voi/primitives/x25519"
 	ed25519_ "github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
@@ -19,14 +20,17 @@ import (
 )
 
 
-type Secret        [32]byte; // type 3
-type XSecret       [32]byte; // type 4
-type Identity      [32]byte; // type 9
-type XPublic       [32]byte; // type 6
+// type 2^4 = max 15.
+type SecretKit  struct {Identity  Secret;  Network Secret;}; // type 1
+type Secret     [32]byte; // type 3
+type XSecret    [32]byte; // type 4
+type Identity   [32]byte; // type 9
+type XPublic    [32]byte; // type 6
 
-type Signature     [64]byte; // type 10
-type Sequence      uint64;   // type 11
-type SecretKit     struct {Identity  Secret;  Network Secret;}; // type 1
+type Signature  [64]byte; // type 10
+type Sequence   uint64;   // type 11
+type Message    struct {Key string; Value []byte }  // type 14
+// type 15 reserved for extended type
 
 // -- secret
 
@@ -99,7 +103,7 @@ func (self *XSecret) String() string  {
     return "<secret redacted>"
 }
 
-func (self *XSecret) AsString() string  {
+func (self *XSecret) ToString() string  {
     return to_str(4, self[:]);
 }
 
@@ -262,7 +266,7 @@ func (self *XPublic) String() string {
 
 // -- secretkit
 
-func (self *SecretKit) AsString() string {
+func (self *SecretKit) ToString() string {
 
     var b [64]byte;
     copy(b[0:],     self.Identity[:])
@@ -286,6 +290,88 @@ func SecretKitFromString(from string) (*SecretKit, error) {
     return &r, nil;
 }
 
+// -- sequence
+
+
+func (self Sequence) String() string {
+    return self.ToString()
+}
+
+func (self Sequence) ToString() string {
+
+    var b bytes.Buffer
+    var err = binary.Write(&b, binary.LittleEndian, self)
+    if err != nil { panic(err)}
+
+
+    var bb = b.Bytes()
+
+    var ll = 8
+    for i := 0; i < 8; i++ {
+        if bb[7-i] == 0 {
+            ll -= 1
+        } else {
+            break
+        }
+    }
+
+    return to_str(11, bb[:ll]);
+}
+
+func SequenceFromString(from string) (Sequence, error) {
+    a, err := from_str(from, 11)
+    if err != nil { return Sequence(0), err; }
+
+    for ;len(a) < 8; {
+        a = append(a, 0)
+    }
+
+    var v = binary.LittleEndian.Uint64(a)
+    if err != nil { return Sequence(0), err; }
+
+    return Sequence(v), nil
+}
+
+// -- message
+
+
+func (self *Message) String() string {
+    return self.ToString()
+}
+
+func (self *Message) ToString() string {
+
+    var key = []byte(self.Key)
+
+    if len(key) > 0xff {
+        key = key[:0xff]
+    }
+    var l = uint8(len(key))
+    var b bytes.Buffer
+    b.Write([]byte{l})
+    b.Write(key)
+    b.Write(self.Value)
+
+    return to_str(14, b.Bytes())
+}
+
+func MessageFromString(from string) (*Message, error) {
+    a, err := from_str(from, 14)
+    if err != nil { return nil, err; }
+
+    if len(a) < 2 {
+        return nil, errors.New("cannot decode '"+from+"' : too small");
+    }
+    var keylen = int(a[0])
+    if len(a) < 1 + keylen {
+        return nil, errors.New("cannot decode '"+from+"' : too small");
+    }
+
+    return &Message{
+        Key:    string(a[1:1+keylen]),
+        Value:  a[1+keylen:],
+    }, nil
+}
 
 // -- common
 
@@ -294,13 +380,21 @@ func from_str(from  string, expect_type uint8) ([]byte, error) {
         return []byte{}, errors.New("cannot decode '"+from+"' : too small");
     }
 
-    if from[0] != 'c' {
+    if from[0] != 'c' && from[0] != '+' && from[0] != '=' {
         return []byte{}, errors.New("cannot decode '"+from+"' : not a b32");
     }
 
     b, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(from[1:])
     if err != nil {
         return nil, fmt.Errorf("base32 decoding error: %w",err)
+    }
+
+    if from[0] == '+' || from[0] == '=' {
+        if (11 != expect_type) {
+            return []byte{}, errors.New("expected " + type_string(expect_type) +
+            " , but got " + type_string(11));
+        }
+        return b, nil;
     }
 
     if len(b) < 3 {
@@ -337,13 +431,13 @@ func from_str(from  string, expect_type uint8) ([]byte, error) {
 
 func type_string(typ byte) string {
     switch typ {
-        case 1  : return "secretkit";
-        case 3  : return "secret";
-        case 6  : return "address";
-        case 9  : return "identity";
-        case 10 : return "signature";
-        case 11 : return "sequence";
-        case 12 : return "moment";
+        case 1  : return "SecretKit";
+        case 3  : return "Secret";
+        case 6  : return "Address";
+        case 9  : return "Identity";
+        case 10 : return "Signature";
+        case 11 : return "Sequence";
+        case 14 : return "Message";
         default : return "unknown type " + strconv.Itoa(int(typ));
     }
 }
@@ -382,7 +476,7 @@ func to_str(typ uint8, k []byte) string {
     var b   bytes.Buffer
 
     if typ == 11 {
-        out.WriteByte('a');
+        out.WriteByte('+');
     } else {
         out.WriteByte('c')
         b.WriteByte(1 << 4 | typ);
