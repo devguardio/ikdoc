@@ -11,6 +11,8 @@ import (
     "strconv"
     "golang.org/x/crypto/curve25519"
     "golang.org/x/crypto/ed25519"
+    "crypto/rsa"
+    "crypto/x509"
     "encoding/binary"
 
     x25519   "github.com/oasisprotocol/curve25519-voi/primitives/x25519"
@@ -19,13 +21,16 @@ import (
     "fmt"
 )
 
-
 // type 2^4 = max 15.
 type SecretKit  struct {Identity  Secret;  Network Secret;}; // type 1
+
 type Secret     [32]byte; // type 3
 type XSecret    [32]byte; // type 4
-type Identity   [32]byte; // type 9
+type RSASecret  rsa.PrivateKey;   // type 5
+
 type XPublic    [32]byte; // type 6
+type RSAPublic  rsa.PublicKey;   // type 8
+type Identity   [32]byte; // type 9
 
 type Signature  [64]byte; // type 10
 type Sequence   uint64;   // type 11
@@ -137,6 +142,51 @@ func (self *XSecret) X25519(pub *XPublic) *Secret {
     return &r;
 }
 
+// -- rsasecret
+
+func CreateRSASecret(size int) (*RSASecret, error) {
+    k, err := rsa.GenerateKey(rand.Reader, size)
+    return (*RSASecret)(k), err;
+}
+
+// no implicit conversion for safety
+func (self *RSASecret) String() string  {
+    return "<secret redacted>"
+}
+
+func (self *RSASecret) ToString() string  {
+    var b = x509.MarshalPKCS1PrivateKey((*rsa.PrivateKey)(self))
+    return to_str(5, b[:]);
+}
+
+func RSASecretFromString(from string) (*RSASecret, error) {
+    a, err := from_str(from, 5)
+    if err != nil {
+        return nil, err;
+    }
+
+    k, err := x509.ParsePKCS1PrivateKey(a)
+    if err != nil {
+        return nil, err;
+    }
+    return (*RSASecret)(k), nil
+}
+
+func (self *RSASecret) RSAPublic() *RSAPublic {
+    return (*RSAPublic)(((*rsa.PrivateKey)(self)).Public().(*rsa.PublicKey))
+}
+
+// -- rsapublic
+
+// no implicit conversion for safety
+func (self *RSAPublic) String() string  {
+    return self.ToString()
+}
+
+func (self *RSAPublic) ToString() string  {
+    var b = x509.MarshalPKCS1PublicKey((*rsa.PublicKey)(self))
+    return to_str(5, b[:]);
+}
 
 // -- signature
 
@@ -376,6 +426,8 @@ func MessageFromString(from string) (*Message, error) {
 // -- common
 
 func from_str(from  string, expect_type uint8) ([]byte, error) {
+    from = strings.TrimSpace(from)
+
     if len(from) < 3 {
         return []byte{}, errors.New("cannot decode '"+from+"' : too small");
     }
@@ -433,7 +485,9 @@ func type_string(typ byte) string {
     switch typ {
         case 1  : return "SecretKit";
         case 3  : return "Secret";
+        case 5  : return "RSASecret";
         case 6  : return "Address";
+        case 8  : return "RSAPublic";
         case 9  : return "Identity";
         case 10 : return "Signature";
         case 11 : return "Sequence";
