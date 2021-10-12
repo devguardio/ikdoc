@@ -6,6 +6,8 @@ import (
     "os"
     "errors"
     "log"
+    "crypto/x509"
+    "crypto/rand"
 )
 
 
@@ -14,12 +16,9 @@ type VaultI interface {
     Identity()  (*Identity, error)
     XPublic()   (*XPublic, error)
     RSAPublic() (*RSAPublic, error)
-    MakeCA()    ([]byte, error)
-    MakeRSACA() ([]byte, error)
 
-    MakeCert    (p *Identity,  names []string) ([]byte, error)
-    MakeRSACert (p *RSAPublic, names []string) ([]byte, error)
-
+    SignCertificate    (template * x509.Certificate, pub *Identity)    ([]byte, error)
+    SignRSACertificate (template * x509.Certificate, pub *RSAPublic)   ([]byte, error)
 
     // will error for HSM, so use the other methods
     ExportSecret()    (*Secret,     error)
@@ -30,13 +29,27 @@ type FileVault struct {
 }
 
 
-func (self *FileVault) Init(interactive bool)  error {
-    path, err := os.UserHomeDir()
-    if err != nil {
-        path = "/root/"
+func path() string {
+    var path = os.Getenv("IDENTITYKIT_PATH")
+    var err error
+
+    if path == "" {
+        path, err = os.UserHomeDir()
+        if err != nil  || path == "" {
+            path = "/root/"
+        }
+        path += "/.devguard"
     }
 
-    var path2 = path + "/.devguard/ed25519.secret"
+    os.MkdirAll(path, os.ModePerm)
+    return path;
+}
+
+func (self *FileVault) Init(interactive bool)  error {
+
+    var path = path();
+
+    var path2 = path + "/ed25519.secret"
     if _, err := os.Stat(path2); !os.IsNotExist(err) {
         log.Println("NOT overriding existing ", path2)
     } else {
@@ -49,7 +62,7 @@ func (self *FileVault) Init(interactive bool)  error {
     }
 
 
-    path2 = path + "/.devguard/rsa.secret"
+    path2 = path + "/rsa.secret"
     if _, err := os.Stat(path2); !os.IsNotExist(err) {
         log.Println("NOT overriding existing ", path2)
     } else {
@@ -66,14 +79,10 @@ func (self *FileVault) Init(interactive bool)  error {
 }
 
 func (self *FileVault) Secret()  (*Secret, error) {
-    path, err := os.UserHomeDir()
-    if err != nil {
-        path = "/root/"
-    }
-    path += "/.devguard/ed25519.secret"
+    var path = path() + "/ed25519.secret"
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
-        return nil, errors.New("missing ~/.devguard/ed25519.secret\n=> run 'ik init' to create a new identity")
+        return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
     }
 
     content, err := ioutil.ReadFile(path)
@@ -86,14 +95,10 @@ func (self *FileVault) Secret()  (*Secret, error) {
 }
 
 func (self *FileVault) RSASecret()  (*RSASecret, error) {
-    path, err := os.UserHomeDir()
-    if err != nil {
-        path = "/root/"
-    }
-    path += "/.devguard/rsa.secret"
+    var path = path() + "/rsa.secret"
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
-        return nil, errors.New("missing ~/.devguard/rsa.secret\n=> run 'ik init' to create a new identity")
+        return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
     }
 
     content, err := ioutil.ReadFile(path)
@@ -131,28 +136,24 @@ func (self *FileVault) ExportRSASecret() (*RSASecret, error) {
     return self.RSASecret()
 }
 
-func (self *FileVault) MakeCA() ([]byte, error) {
-    p, err := self.Secret()
-    if err != nil { return nil, err }
-    return makeCA(p.ToGo())
-}
-
-func (self *FileVault) MakeRSACA() ([]byte, error) {
-    p, err := self.RSASecret()
-    if err != nil { return nil, err }
-    return makeCA(p.ToGo())
-}
-
-func (self *FileVault) MakeCert(p *Identity, names []string) ([]byte, error) {
+func (self *FileVault) SignCertificate (template * x509.Certificate, pub *Identity) ([]byte, error) {
     k, err := self.Secret()
     if err != nil { return nil, err }
-    return makeCert(p.ToGo(), k.ToGo(), names)
+
+    parent, err := k.Identity().ToCertificate();
+    if err != nil { return nil, err }
+
+    return x509.CreateCertificate(rand.Reader, template, parent, pub.ToGo(), k.ToGo())
 }
 
-func (self *FileVault) MakeRSACert(p *RSAPublic, names []string) ([]byte, error) {
+func (self *FileVault) SignRSACertificate (template * x509.Certificate, pub *RSAPublic) ([]byte, error) {
     k, err := self.RSASecret()
     if err != nil { return nil, err }
-    return makeCert(p.ToGo(), k.ToGo(), names)
+
+    parent, err := k.RSAPublic().ToCertificate();
+    if err != nil { return nil, err }
+
+    return x509.CreateCertificate(rand.Reader, template, parent, pub.ToGo(), k.ToGo())
 }
 
 
