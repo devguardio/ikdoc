@@ -14,6 +14,12 @@ type VaultI interface {
     Identity()  (*Identity, error)
     XPublic()   (*XPublic, error)
     RSAPublic() (*RSAPublic, error)
+    MakeCA()    ([]byte, error)
+    MakeRSACA() ([]byte, error)
+
+    MakeCert    (p *Identity,  names []string) ([]byte, error)
+    MakeRSACert (p *RSAPublic, names []string) ([]byte, error)
+
 
     // will error for HSM, so use the other methods
     ExportSecret()    (*Secret,     error)
@@ -125,6 +131,29 @@ func (self *FileVault) ExportRSASecret() (*RSASecret, error) {
     return self.RSASecret()
 }
 
+func (self *FileVault) MakeCA() ([]byte, error) {
+    p, err := self.Secret()
+    if err != nil { return nil, err }
+    return makeCA(p.ToGo())
+}
+
+func (self *FileVault) MakeRSACA() ([]byte, error) {
+    p, err := self.RSASecret()
+    if err != nil { return nil, err }
+    return makeCA(p.ToGo())
+}
+
+func (self *FileVault) MakeCert(p *Identity, names []string) ([]byte, error) {
+    k, err := self.Secret()
+    if err != nil { return nil, err }
+    return makeCert(p.ToGo(), k.ToGo(), names)
+}
+
+func (self *FileVault) MakeRSACert(p *RSAPublic, names []string) ([]byte, error) {
+    k, err := self.RSASecret()
+    if err != nil { return nil, err }
+    return makeCert(p.ToGo(), k.ToGo(), names)
+}
 
 
 func Vault() VaultI {
