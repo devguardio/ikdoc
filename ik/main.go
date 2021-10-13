@@ -12,6 +12,8 @@ import (
     "time"
     "crypto/x509/pkix"
     "net"
+    "crypto/tls"
+    "net/http"
 )
 
 func main() {
@@ -27,8 +29,25 @@ func main() {
     rootCmd.PersistentFlags().BoolVarP(&usersa, "rsa", "r", false, "use rsa instead of ed25519")
 
 
+    compat := &cobra.Command{
+        Use:        "convert <id>",
+        Short:      "legacy conversion commands",
+        Aliases:    []string{"cv", "conv"},
+    }
+    compat.AddCommand(&cobra.Command{
+        Use:        "id32to58 <id>",
+        Short:      "convert a b32 identity to a legacy b58",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            id, err := identity.IdentityFromString(args[0])
+            if err != nil { panic(err) }
+            fmt.Println(id.String58())
+        },
+    });
+    rootCmd.AddCommand(compat);
+
     rootCmd.AddCommand(&cobra.Command{
-        Use:        "identity",
+        Use:        "identity ",
         Aliases:    []string{"id"},
         Short:      "print my identity",
         Run: func(cmd *cobra.Command, args []string) {
@@ -46,7 +65,7 @@ func main() {
 
     rootCmd.AddCommand(&cobra.Command{
         Use:    "address",
-        Aliases:  []string{"xp"},
+        Aliases:  []string{"xp", "addr"},
         Short:  "print my DH address",
         Run: func(cmd *cobra.Command, args []string) {
             if usersa {
@@ -205,14 +224,16 @@ func main() {
 
     rootCmd.AddCommand(cmdCert);
 
-    /*
+
+
 
 
     rootCmd.AddCommand(&cobra.Command{
-        Use:    "tlsserver",
-        Short:  "launch a test https server with a certificate bundle signed by the vault",
+        Use:    "serve",
+        Short:  "launch an https test server with a certificate bundle signed by the vault",
         Run: func(cmd *cobra.Command, args []string) {
 
+            var vault = identity.Vault();
             var tlsconfig = &tls.Config{
                 InsecureSkipVerify: true,
                 MaxVersion:         tls.VersionTLS12,
@@ -220,116 +241,45 @@ func main() {
 
                     log.Println("SNI: ", helo.ServerName);
 
-                    if usersa {
-                        key, err := identity.CreateRSASecret(2048);
-                        if err != nil { panic(err) }
-
-                        der, err := identity.Vault().MakeRSACert(key.RSAPublic(), []string{helo.ServerName})
-                        if err != nil { panic(err) }
-
-                        return &tls.Certificate{
-                            PrivateKey: key.ToGo(),
-                            Certificate: [][]byte{der},
-                        }, nil
-
-                    } else {
-                        key, err := identity.CreateSecret();
-                        if err != nil { panic(err) }
-
-                        der, err := identity.Vault().MakeCert(key.Identity(), []string{helo.ServerName})
-                        if err != nil { panic(err) }
-
-                        return &tls.Certificate{
-                            PrivateKey: key.ToGo(),
-                            Certificate: [][]byte{der},
-                        }, nil
-                    }
-                },
-                ClientAuth: tls.RequireAnyClientCert,
-                VerifyPeerCertificate: func(certificates [][]byte, verifiedChains [][]*x509.Certificate) error {
-
-                    certs := make([]*x509.Certificate, len(certificates))
-                    var err error
-                    for i, asn1Data := range certificates {
-                        if certs[i], err = x509.ParseCertificate(asn1Data); err != nil {
-                            return errors.New("tls: failed to parse client certificate: " + err.Error())
-                        }
-                    }
-                    if len(certs) == 0 {
-                        return errors.New("tls: client didn't provide a certificate")
-                    }
-
-                    // note that we totally ignore the chain.
-                    // TLS clients usually assume the server and client chain have the same "chain"
-                    // so it might send that, but certainly not any chain actually relevant to the client.
-                    // So instead we must enforce that the client cert is self signed.
-
-                    var idCert = certs[0];
-
-                    pkey, ok := idCert.PublicKey.(ed25519.PublicKey);
-                    if !ok {
-                        return errors.New("tls: claimed identity not ed25519");
-                    }
-                    var id identity.Identity;
-                    copy(id[:], pkey[:]);
-
-                    // check self signature
-                    err = idCert.CheckSignatureFrom(idCert);
-                    if err != nil { return err }
-
-                    // addtionally verify that the thing using whatever golang does.
-                    // probably useless for our purpose, but why not
-
                     var notBefore = time.Now().Add(-1 * time.Hour)
-                    var notAfter = notBefore.Add(2 * time.Hour)
+                    var notAfter  = notBefore.Add(time.Hour * 87600)
 
-                    var ca = x509.NewCertPool();
-                    cac := &x509.Certificate{
-                        Version:                3,
-                        PublicKey:              pkey,
-                        PublicKeyAlgorithm:     x509.Ed25519,
+                    cert := &x509.Certificate{
                         SerialNumber: big.NewInt(1),
                         Subject: pkix.Name{
                             Organization:           []string{"identitykit"},
-                            OrganizationalUnit:     []string{base64.StdEncoding.EncodeToString(id[:])},
+                            CommonName:             helo.ServerName,
                         },
-                        NotBefore: notBefore,
-                        NotAfter:  notAfter,
-                        IsCA:                   true,
-                        KeyUsage:               x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+                        NotBefore:              notBefore,
+                        NotAfter:               notAfter,
+                        IsCA:                   false,
+                        KeyUsage:               x509.KeyUsageDigitalSignature,
                         ExtKeyUsage:            []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-                        BasicConstraintsValid:  true,
-                        SubjectKeyId:           id[:],
-                    };
-                    ca.AddCert(cac);
-
-                    // note that this verifies ok for single cert, even if its not self signed,
-                    // so i'm not even sure what the point of checking this is.
-                    opts := x509.VerifyOptions{
-                        Roots:          ca,
-                        CurrentTime:    time.Now(),
-                        KeyUsages:      []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
                     }
 
-                    _ , err = certs[0].Verify(opts)
-                    if err != nil {
-                        return errors.New("tls: failed to verify client certificate: " + err.Error())
-                    }
+                    key, err := identity.CreateSecret();
+                    if err != nil { panic(err) }
 
+                    pub := key.Identity();
+                    cert.SubjectKeyId = pub[:];
 
-                    log.Println("verified identity: ", id.String());
+                    der, err := vault.SignCertificate(cert, pub);
+                    if err != nil { panic(err) }
 
-
-
-                    return nil
+                    return &tls.Certificate{
+                        PrivateKey: key.ToGo(),
+                        Certificate: [][]byte{der},
+                    }, nil
                 },
-
+                ClientAuth: tls.RequireAnyClientCert,
+                VerifyPeerCertificate: identity.VerifyPeerCertificate,
             };
 
             server := http.Server{
                 Addr:      "0.0.0.0:8443",
                 Handler:   http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-                    fmt.Fprintf(w, "Hello, %q", r.URL.Path)
+                    id := identity.ClaimedPeerIdentity(r.TLS);
+                    fmt.Fprintf(w, "Hello, %s\n", id.String())
                 }),
                 TLSConfig: tlsconfig,
             }
@@ -338,8 +288,6 @@ func main() {
             if err != nil { panic(err) }
         },
     });
-
-    */
 
     if err := rootCmd.Execute(); err != nil {
         os.Exit(1);

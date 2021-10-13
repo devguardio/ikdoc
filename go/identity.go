@@ -4,6 +4,7 @@ import (
     "crypto/rand"
     "crypto"
     "encoding/base32"
+    "github.com/shengdoushi/base58"
     "github.com/go-daq/crc8"
     "bytes"
     "errors"
@@ -81,12 +82,12 @@ func (self *Secret) XSecret() *XSecret{
 
 
 func SecretFromString(from string) (*Secret, error) {
-    a, err := from_str(from, 3)
+    a, err := from_str(from, 3, 32)
     if err != nil {
         return nil, err;
     }
     if len(a) < 32 {
-        return nil, fmt.Errorf("expected 32 bytes");
+        return nil, fmt.Errorf("expected 32 bytes, got %d", len(a));
     }
 
     var r Secret;
@@ -113,7 +114,7 @@ func (self *XSecret) ToString() string  {
 }
 
 func XSecretFromString(from string) (*XSecret, error) {
-    a, err := from_str(from, 4)
+    a, err := from_str(from, 4, 32)
     if err != nil {
         return nil, err;
     }
@@ -160,7 +161,7 @@ func (self *RSASecret) ToString() string  {
 }
 
 func RSASecretFromString(from string) (*RSASecret, error) {
-    a, err := from_str(from, 5)
+    a, err := from_str(from, 5, 0)
     if err != nil {
         return nil, err;
     }
@@ -195,12 +196,12 @@ func (self *Signature) String() string {
 }
 
 func SignatureFromString(from string) (*Signature, error) {
-    a, err := from_str(from, 10)
+    a, err := from_str(from, 10, 64)
     if err != nil {
         return nil, err;
     }
     if len(a) < 64 {
-        return nil, fmt.Errorf("expected 32 bytes");
+        return nil, fmt.Errorf("expected 64 bytes");
     }
 
     var r Signature;
@@ -251,6 +252,11 @@ func (self *Identity) String() string {
     return to_str(9, self[:]);
 }
 
+func (self *Identity) String58() string {
+    return to_str58(9, self[:]);
+}
+
+
 func (self *Identity) XPublic() (*XPublic, error) {
     b, ok := x25519.EdPublicKeyToX25519(ed25519_.PublicKey(self[:]))
     if !ok {
@@ -271,12 +277,12 @@ func IdentityFromSecret(secret *Secret) *Identity {
 }
 
 func IdentityFromString(from string) (*Identity, error) {
-    a, err := from_str(from, 9)
+    a, err := from_str(from, 9, 32)
     if err != nil {
         return nil, err;
     }
     if len(a) < 32 {
-        return nil, fmt.Errorf("expected 32 bytes");
+        return nil, fmt.Errorf("expected 32 bytes, got %d", len(a));
     }
 
     var r Identity;
@@ -297,7 +303,7 @@ func XPublicFromSecret(from *XSecret) *XPublic {
 }
 
 func XPublicFromString(from string) (*XPublic, error) {
-    a, err := from_str(from, 6)
+    a, err := from_str(from, 6, 32)
     if err != nil {
         return nil, err;
     }
@@ -326,7 +332,7 @@ func (self *SecretKit) ToString() string {
 }
 
 func SecretKitFromString(from string) (*SecretKit, error) {
-    a, err := from_str(from, 1)
+    a, err := from_str(from, 1, 64)
     if err != nil {
         return nil, err;
     }
@@ -369,7 +375,7 @@ func (self Sequence) ToString() string {
 }
 
 func SequenceFromString(from string) (Sequence, error) {
-    a, err := from_str(from, 11)
+    a, err := from_str(from, 11, 0)
     if err != nil { return Sequence(0), err; }
 
     for ;len(a) < 8; {
@@ -406,7 +412,7 @@ func (self *Message) ToString() string {
 }
 
 func MessageFromString(from string) (*Message, error) {
-    a, err := from_str(from, 14)
+    a, err := from_str(from, 14, 0)
     if err != nil { return nil, err; }
 
     if len(a) < 2 {
@@ -425,7 +431,7 @@ func MessageFromString(from string) (*Message, error) {
 
 // -- common
 
-func from_str(from  string, expect_type uint8) ([]byte, error) {
+func from_str(from  string, expect_type uint8, expected_size int) ([]byte, error) {
     from = strings.TrimSpace(from)
 
     if len(from) < 3 {
@@ -461,6 +467,13 @@ func from_str(from  string, expect_type uint8) ([]byte, error) {
         return []byte{}, errors.New("expected " + type_string(expect_type) +
             " , but got " + type_string(b[0] & 0x0f));
     }
+
+    for ;len(b) - 2 < expected_size; {
+        var index = 1;
+        b = append(b[:index+1], b[index:]...)
+        b[index] = 0
+    }
+
 
     var br = b[1:len(b)-1];
     var crc = crc8.Checksum(b[0:1], &crc8_table);
@@ -550,6 +563,34 @@ func to_str(typ uint8, k []byte) string {
 
     return strings.Trim(string(out.Bytes()), "=")
 }
+
+func to_str58(typ uint8, k []byte) string {
+    var b     bytes.Buffer
+
+    b.WriteByte(8)
+    b.WriteByte(typ)
+    b.Write(k)
+
+    b.WriteByte(broken_crc8(0, b.Bytes()))
+
+    rr := base58.Encode(b.Bytes(), base58.BitcoinAlphabet)
+
+    return rr;
+}
+
+// this is the equivalent of the broken rust code in v8
+func broken_crc8(crc byte, data []byte) byte {
+    for i := 0; i < len(data); i++ {
+        if ((crc ^ data[i]) % 2 > 0) {
+            crc = 84;
+        } else {
+            crc = 0;
+        }
+    }
+    return crc;
+}
+
+
 
 func isnull(k []byte) bool {
     if len(k) < 1 {
