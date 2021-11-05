@@ -2,6 +2,8 @@ github.com/go-daq/crc8 v0.0.0-20170116120732-380c22547098 h1:3nEKbx1O3wy7Czi49AL
 github.com/go-daq/crc8 v0.0.0-20170116120732-380c22547098/go.mod h1:AaVLbiJT3SvaMMo8D1evl9xPwKu0uhovohUnFuB9ggw=
 github.com/oasisprotocol/curve25519-voi v0.0.0-20210609091139-0a56a4bca00b h1:MKwruh+HeCSKWphkxuzvRzU4QzDkg7yiPkDVV0cDFgI=
 github.com/oasisprotocol/curve25519-voi v0.0.0-20210609091139-0a56a4bca00b/go.mod h1:TLJifjWF6eotcfzDjKZsDqWJ+73Uvj/N85MvVyrvynM=
+github.com/shengdoushi/base58 v1.0.0 h1:tGe4o6TmdXFJWoI31VoSWvuaKxf0Px3gqa3sUWhAxBs=
+github.com/shengdoushi/base58 v1.0.0/go.mod h1:m5uIILfzcKMw6238iWAhP4l3s5+uXyF3+bJKUNhAL9I=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad/go.mod h1:jdWPYTVW3xRLrWPugEBEK3UY2ZEsg3UU495nc5E+M+I=
 golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e h1:gsTQYXdTw2Gq7RBsWvlQ91b+aEQ6bXFUngBGuR8sPpI=

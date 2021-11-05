@@ -17,8 +17,9 @@ type VaultI interface {
     XPublic()   (*XPublic, error)
     RSAPublic() (*RSAPublic, error)
 
-    SignCertificate    (template * x509.Certificate, pub *Identity)    ([]byte, error)
-    SignRSACertificate (template * x509.Certificate, pub *RSAPublic)   ([]byte, error)
+    Sign                (subject string, message []byte) (*Signature, error)
+    SignCertificate     (template * x509.Certificate, pub *Identity)    ([]byte, error)
+    SignRSACertificate  (template * x509.Certificate, pub *RSAPublic)   ([]byte, error)
 
     // will error for HSM, so use the other methods
     ExportSecret()    (*Secret,     error)
@@ -113,7 +114,7 @@ func (self *FileVault) RSASecret()  (*RSASecret, error) {
 func (self *FileVault) Identity()  (*Identity, error) {
     secret, err := self.Secret()
     if err != nil { return nil, err}
-    return secret.Identity(), nil
+    return secret.Identity()
 }
 
 func (self *FileVault) XPublic()  (*XPublic, error) {
@@ -140,7 +141,10 @@ func (self *FileVault) SignCertificate (template * x509.Certificate, pub *Identi
     k, err := self.Secret()
     if err != nil { return nil, err }
 
-    parent, err := k.Identity().ToCertificate();
+    pk, err := k.Identity()
+    if err != nil { return nil, err }
+
+    parent, err := pk.ToCertificate();
     if err != nil { return nil, err }
 
     return x509.CreateCertificate(rand.Reader, template, parent, pub.ToGo(), k.ToGo())
@@ -154,6 +158,12 @@ func (self *FileVault) SignRSACertificate (template * x509.Certificate, pub *RSA
     if err != nil { return nil, err }
 
     return x509.CreateCertificate(rand.Reader, template, parent, pub.ToGo(), k.ToGo())
+}
+
+func (self *FileVault) Sign(subject string, message []byte) (*Signature, error) {
+    k, err := self.Secret()
+    if err != nil { return nil, err }
+    return k.Sign(subject, message)
 }
 
 

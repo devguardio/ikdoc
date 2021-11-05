@@ -55,8 +55,8 @@ func (self *Secret) ToString() string  {
     return to_str(3, self[:]);
 }
 
-func (self *Secret) Identity() *Identity {
-    return IdentityFromSecret(self)
+func (self *Secret) Identity() (*Identity, error) {
+    return IdentityFromSecret(self), nil
 }
 
 func (self *Secret) Xor(otp * Secret) Secret{
