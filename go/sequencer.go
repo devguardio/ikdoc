@@ -10,6 +10,7 @@ import (
     "io/ioutil"
     "strings"
     "bytes"
+    "strconv"
 )
 
 type Anchor struct {
@@ -37,13 +38,14 @@ func NewAnchor(vault VaultI, name string, first *Identity) error {
     err = os.MkdirAll(path.Join(p, "sha256"), os.ModePerm)
     if err != nil { return err }
 
-    js, err := json.Marshal(&Anchor{
+    nu := &Anchor{
         Sequence:           1,
         Trust:              []Identity{*first},
         CreatedAt:          time.Now(),
         SignatureQuorum:    1,
         AdvanceQuorum:      1,
-    })
+    }
+    js, err := json.Marshal(&nu)
     if err != nil { return err }
 
     h := sha256.New()
@@ -63,6 +65,9 @@ func NewAnchor(vault VaultI, name string, first *Identity) error {
     if err != nil { return err }
 
     err = os.WriteFile(path.Join(p, "heads", "anchor"), []byte("sha256/" + sum + "\n"), 0644)
+    if err != nil { return err }
+
+    err = os.WriteFile(path.Join(p, "sequence"), []byte(strconv.Itoa(int(nu.Sequence)) + "\n"), 0644)
     if err != nil { return err }
 
     return nil
@@ -130,6 +135,13 @@ func AppendRemoveAnchor(vault VaultI, name string, nuid *Identity, remove bool, 
 
     var p = path.Join(DefaultPath(), "anchors" , name)
 
+    var pf = path.Join(p, "sequence")
+    seqb, err := ioutil.ReadFile(pf)
+    if err != nil { return nil, fmt.Errorf("%s : %w", pf, err) }
+    seq, err := strconv.Atoi(strings.TrimSpace(string(seqb)))
+    if err != nil { return nil, fmt.Errorf("%s : %w", pf, err) }
+
+
     head, err := LoadAnchor(vault , name )
     if err != nil { return nil, err }
 
@@ -148,7 +160,7 @@ func AppendRemoveAnchor(vault VaultI, name string, nuid *Identity, remove bool, 
     }
 
     nu := &Anchor{
-        Sequence:           head.Sequence + 1,
+        Sequence:           Sequence(seq + 1),
         Precedence:         head.Digest,
         CreatedAt:          time.Now(),
         SignatureQuorum:    head.SignatureQuorum,
@@ -194,7 +206,7 @@ func AppendRemoveAnchor(vault VaultI, name string, nuid *Identity, remove bool, 
 
     nu.Digest = "sha256/" + sum
 
-    pf := path.Join(p, nu.Digest)
+    pf = path.Join(p, nu.Digest)
 
     err = os.WriteFile(pf, js, 0644)
     if err != nil { return nil, err }
@@ -206,6 +218,9 @@ func AppendRemoveAnchor(vault VaultI, name string, nuid *Identity, remove bool, 
     if err != nil { return nil, err }
 
     err = os.WriteFile(path.Join(p, "heads", "anchor"), []byte(nu.Digest + "\n"), 0644)
+    if err != nil { return nil, err }
+
+    err = os.WriteFile(path.Join(p, "sequence"), []byte(strconv.Itoa(int(nu.Sequence)) + "\n"), 0644)
     if err != nil { return nil, err }
 
     return nu, nil
