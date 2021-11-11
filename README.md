@@ -68,7 +68,7 @@ $ ik a new foo
 $ ik m verify hello.txt -a foo
 ```
 
-anchors can require a minimum of members sign a message to be considered signed by the anchor
+anchors can require a minimum of members sign a message to be considered signed by the anchor.
 in this example, we create two identities and sign a file by both
 
 ```
@@ -80,18 +80,18 @@ then add both to an anchor
 
 ```
 ik a new multisig $(IDENTITYKIT_PATH=/tmp/A ik id)
-ik a add multisig $(IDENTITYKIT_PATH=/tmp/A ik id) --signature-quorum 2
+ik a add multisig $(IDENTITYKIT_PATH=/tmp/B ik id) --signature-quorum 2
 ```
 
 if we only sign the message with one identity, it is not valid
 
 ```
-$ IDENTITYKIT_PATH=/tmp/A ik sign hello.txt
-$ ik verify hello.txt -a multisig
+$ IDENTITYKIT_PATH=/tmp/A ik m sign hello.txt
+$ ik m verify hello.txt -a multisig
 /tmp/hello.txt.iksig : insufficient valid signatures
 
-$ IDENTITYKIT_PATH=/tmp/B ik sign hello.txt
-$ ik verify hello.txt -a multisig
+$ IDENTITYKIT_PATH=/tmp/B ik m sign hello.txt
+$ ik m verify hello.txt -a multisig
 GOOD
 ```
 

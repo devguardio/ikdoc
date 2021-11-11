@@ -4,15 +4,13 @@ import (
     "os"
     "fmt"
     "encoding/json"
-    "crypto/sha512"
+    "crypto/sha256"
     "path"
     "time"
     "io/ioutil"
     "strings"
     "bytes"
 )
-
-
 
 type Anchor struct {
     Sequence            Sequence    `json:"sequence"`
@@ -33,7 +31,10 @@ func NewAnchor(vault VaultI, name string, first *Identity) error {
         return fmt.Errorf("%s already exists", p);
     }
 
-    err := os.MkdirAll(p, os.ModePerm)
+    err := os.MkdirAll(path.Join(p, "heads"), os.ModePerm)
+    if err != nil { return err }
+
+    err = os.MkdirAll(path.Join(p, "sha256"), os.ModePerm)
     if err != nil { return err }
 
     js, err := json.Marshal(&Anchor{
@@ -45,12 +46,12 @@ func NewAnchor(vault VaultI, name string, first *Identity) error {
     })
     if err != nil { return err }
 
-    h := sha512.New()
+    h := sha256.New()
 	h.Write(js)
 
     sum := fmt.Sprintf("%x", h.Sum(nil))
 
-    pf := path.Join(p, sum)
+    pf := path.Join(p, "sha256", sum)
 
     err = os.WriteFile(pf, js, 0644)
     if err != nil { return err }
@@ -61,7 +62,7 @@ func NewAnchor(vault VaultI, name string, first *Identity) error {
     err = os.WriteFile(pf + ".iksig", []byte(sig.String() + "\n"), 0644)
     if err != nil { return err }
 
-    err = os.WriteFile(path.Join(p, ".ROOT"), []byte(sum + "\n"), 0644)
+    err = os.WriteFile(path.Join(p, "heads", "anchor"), []byte("sha256/" + sum + "\n"), 0644)
     if err != nil { return err }
 
     return nil
@@ -71,7 +72,7 @@ func LoadAnchor(vault VaultI, name string) (*Anchor, error) {
 
     var p = path.Join(DefaultPath(), "anchors", name)
 
-    var pf = path.Join(p, ".ROOT")
+    var pf = path.Join(p, "heads", "anchor")
 
     b, err := ioutil.ReadFile(pf)
     if err != nil { return nil, fmt.Errorf("%s : %w", pf, err) }
@@ -86,11 +87,10 @@ func LoadAnchor(vault VaultI, name string) (*Anchor, error) {
 	err = json.Unmarshal(js, anchor);
     if err != nil { return nil, fmt.Errorf("%s : %w", pf, err) }
 
-    anchor.Digest = "sha512:" + sum
+    anchor.Digest = sum
 
     return anchor, nil
 }
-
 
 func (self *Anchor) Verify(advance bool, subject string, message []byte, signatures []Signature) error {
 
@@ -126,27 +126,45 @@ func (self *Anchor) Verify(advance bool, subject string, message []byte, signatu
 }
 
 
-func AppendAnchor(vault VaultI, name string, nuid *Identity, advanceQuorum, signatureQuorum uint) (*Anchor, error) {
+func AppendRemoveAnchor(vault VaultI, name string, nuid *Identity, remove bool, advanceQuorum, signatureQuorum uint) (*Anchor, error) {
 
     var p = path.Join(DefaultPath(), "anchors" , name)
 
     head, err := LoadAnchor(vault , name )
     if err != nil { return nil, err }
 
-
+    var found = false
     for _, t := range head.Trust {
         if bytes.Equal(t[:], nuid[:]) {
-            return nil, fmt.Errorf("identity already a member");
+            found = true
+            break
         }
+    }
+
+    if remove && !found{
+        return nil, fmt.Errorf("identity not a member");
+    } else if !remove && found {
+        return nil, fmt.Errorf("identity already a member");
     }
 
     nu := &Anchor{
         Sequence:           head.Sequence + 1,
         Precedence:         head.Digest,
-        Trust:              append(head.Trust, *nuid),
         CreatedAt:          time.Now(),
         SignatureQuorum:    head.SignatureQuorum,
         AdvanceQuorum:      head.AdvanceQuorum,
+    }
+
+    if remove {
+        nu.Trust = make([]Identity, 0)
+        for _, t := range head.Trust {
+            if bytes.Equal(t[:], nuid[:]) {
+                continue
+            }
+            nu.Trust = append(nu.Trust, t)
+        }
+    } else {
+        nu.Trust = append(head.Trust, *nuid)
     }
 
     if advanceQuorum > 0 {
@@ -155,6 +173,10 @@ func AppendAnchor(vault VaultI, name string, nuid *Identity, advanceQuorum, sign
     if signatureQuorum > 0 {
         nu.SignatureQuorum = signatureQuorum
     }
+    if int(nu.AdvanceQuorum) > 1  {
+        return nil, fmt.Errorf("advance quorum > 1 not yet supported")
+    }
+
     if int(nu.AdvanceQuorum) > 1 && int(nu.AdvanceQuorum) >= len(nu.Trust) {
         return nil, fmt.Errorf("invalid advance quorum: %d/%d. must hold quorum < members", nu.AdvanceQuorum,len(nu.Trust))
     }
@@ -165,14 +187,14 @@ func AppendAnchor(vault VaultI, name string, nuid *Identity, advanceQuorum, sign
     js , err := json.Marshal(&nu);
     if err != nil { return nil, err }
 
-    h := sha512.New()
+    h := sha256.New()
 	h.Write(js)
 
     sum := fmt.Sprintf("%x", h.Sum(nil))
 
-    nu.Digest = "sha512:" + sum
+    nu.Digest = "sha256/" + sum
 
-    pf := path.Join(p, sum)
+    pf := path.Join(p, nu.Digest)
 
     err = os.WriteFile(pf, js, 0644)
     if err != nil { return nil, err }
@@ -183,7 +205,7 @@ func AppendAnchor(vault VaultI, name string, nuid *Identity, advanceQuorum, sign
     err = os.WriteFile(pf + ".iksig", []byte(sig.String() + "\n"), 0644)
     if err != nil { return nil, err }
 
-    err = os.WriteFile(path.Join(p, ".ROOT"), []byte(sum + "\n"), 0644)
+    err = os.WriteFile(path.Join(p, "heads", "anchor"), []byte(nu.Digest + "\n"), 0644)
     if err != nil { return nil, err }
 
     return nu, nil

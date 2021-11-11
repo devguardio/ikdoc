@@ -68,7 +68,7 @@ func main() {
             id, err := identity.IdentityFromString(argIdentity)
             if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
 
-            anchor, err := identity.AppendAnchor(identity.Vault(), args[0], id, argAdvanceQuorum, argSignQuorum)
+            anchor, err := identity.AppendRemoveAnchor(identity.Vault(), args[0], id, false, argAdvanceQuorum, argSignQuorum)
             if err != nil { panic(err) }
 
             fmt.Println(anchor.Sequence);
@@ -79,6 +79,26 @@ func main() {
     sqCmd.AddCommand(sqAddCmd)
 
 
+    sqRmCmd := &cobra.Command{
+        Use:        "remove <anchorname> <identity> [ -a <advance-quorum> ] [ -s <sign-quorum> ]",
+        Aliases:    []string{"rm", "del"},
+        Short:      "remove an identity from  anchor",
+        Args:       cobra.MinimumNArgs(2),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            var argIdentity = args[1]
+            id, err := identity.IdentityFromString(argIdentity)
+            if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
+
+            anchor, err := identity.AppendRemoveAnchor(identity.Vault(), args[0], id, true, argAdvanceQuorum, argSignQuorum)
+            if err != nil { panic(err) }
+
+            fmt.Println(anchor.Sequence);
+        },
+    }
+    sqRmCmd.Flags().UintVarP(&argAdvanceQuorum,  "advance-quorum", "a", 0, "number of members required to forward the sequence");
+    sqRmCmd.Flags().UintVarP(&argSignQuorum,     "signature-quorum", "s", 0, "number of members required to consider a message signed by anchor");
+    sqCmd.AddCommand(sqRmCmd)
 
     var mCmd = &cobra.Command{
         Use:        "msg",
