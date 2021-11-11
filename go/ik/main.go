@@ -15,6 +15,7 @@ import (
     "crypto/tls"
     "net/http"
     "io/ioutil"
+    "bufio"
 )
 
 func main() {
@@ -31,7 +32,51 @@ func main() {
 
 
 
+    var sqCmd = &cobra.Command{
+        Use:        "anchor",
+        Aliases:    []string{"a"},
+        Short:      "generic sequential anchor",
+    }
+    rootCmd.AddCommand(sqCmd);
 
+    sqNewCmd := &cobra.Command{
+        Use:        "new <anchorname> <identity>",
+        Short:      "create a new anchor with an initially trusted identity",
+        Args:       cobra.MinimumNArgs(2),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            var argIdentity = args[1]
+            id, err := identity.IdentityFromString(argIdentity)
+            if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
+
+            err = identity.NewAnchor(identity.Vault(), args[0], id)
+            if err != nil { panic(err) }
+        },
+    }
+    sqCmd.AddCommand(sqNewCmd)
+
+    var argAdvanceQuorum    uint
+    var argSignQuorum       uint
+
+    sqAddCmd := &cobra.Command{
+        Use:        "add <anchorname> <identity> [ -a <advance-quorum> ] [ -s <sign-quorum> ]",
+        Short:      "add an identity to anchor",
+        Args:       cobra.MinimumNArgs(2),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            var argIdentity = args[1]
+            id, err := identity.IdentityFromString(argIdentity)
+            if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
+
+            anchor, err := identity.AppendAnchor(identity.Vault(), args[0], id, argAdvanceQuorum, argSignQuorum)
+            if err != nil { panic(err) }
+
+            fmt.Println(anchor.Sequence);
+        },
+    }
+    sqAddCmd.Flags().UintVarP(&argAdvanceQuorum,  "advance-quorum", "a", 0, "number of members required to forward the sequence");
+    sqAddCmd.Flags().UintVarP(&argSignQuorum,     "signature-quorum", "s", 0, "number of members required to consider a message signed by anchor");
+    sqCmd.AddCommand(sqAddCmd)
 
 
 
@@ -44,7 +89,7 @@ func main() {
 
     mCmd.AddCommand(&cobra.Command{
         Use:        "sign <filename>",
-        Short:      "sign a file and create a <filename>.iksig in the same directory",
+        Short:      "sign a file and add sig to <filename>.iksig in the same directory",
         Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
@@ -54,7 +99,7 @@ func main() {
             sig, err := identity.Vault().Sign("iksig", b)
             if err != nil { panic(err) }
 
-            f, err := os.OpenFile(args[0] + ".iksig", os.O_RDWR | os.O_CREATE | os.O_EXCL, 0755)
+            f, err := os.OpenFile(args[0] + ".iksig", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0755)
             if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
 
             _, err = f.Write([]byte(sig.String() + "\n"))
@@ -62,41 +107,60 @@ func main() {
         },
     });
 
+
+
     var argIdentity string
+    var argAnchor   string
     verifyCmd := &cobra.Command{
-        Use:        "verify <filename> [ -I <identity> |  -A <anchor> ]",
+        Use:        "verify <filename> [ -i <identity> |  -a <anchor> ]",
         Short:      "verify a file is signed by an identity or anchor using <filename>.iksig in the same directory",
         Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
+            var err error
+            var anchor *identity.Anchor
 
-            if argIdentity == "" {
-                panic("-I or -A required")
+            if argAnchor != "" {
+                anchor, err = identity.LoadAnchor(identity.Vault(),  argAnchor)
+                if err != nil { panic(fmt.Errorf("%s : %w", argAnchor, err)) }
+            } else if argIdentity != "" {
+                id, err := identity.IdentityFromString(argIdentity)
+                if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
+
+                anchor = &identity.Anchor{
+                    Trust:              []identity.Identity{*id},
+                    SignatureQuorum:    1,
+                    AdvanceQuorum:      1,
+                }
+            } else {
+                panic("-i or -a required")
             }
-
-            id, err := identity.IdentityFromString(argIdentity)
-            if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
 
             b, err := ioutil.ReadFile(args[0])
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-            bs, err := ioutil.ReadFile(args[0] + ".iksig")
+            sf, err := os.Open(args[0] + ".iksig")
             if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
+            scanner := bufio.NewScanner(sf)
 
-            sig, err := identity.SignatureFromString(string(bs))
-            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
+            var sigs = []identity.Signature{}
+            for scanner.Scan() {
+                var sig *identity.Signature
+                sig, err = identity.SignatureFromString(scanner.Text())
+                if err != nil { continue }
+                sigs = append(sigs, *sig)
+            }
 
-            if sig.Verify("iksig", b, id) {
-                fmt.Println("GOOD")
-            } else {
-                fmt.Println("BAD")
+            err = anchor.Verify(false, "iksig", b, sigs)
+            if err != nil {
+                fmt.Printf("%s : %v\n", args[0] + ".iksig", err);
                 os.Exit(2)
             }
         },
     };
-    verifyCmd.Flags().StringVarP(&argIdentity, "identity", "I",  "", "public identity")
+    verifyCmd.Flags().StringVarP(&argIdentity,  "identity", "i",  "", "public identity")
+    verifyCmd.Flags().StringVarP(&argAnchor,    "anchor",   "a",  "", "anchor")
     mCmd.AddCommand(verifyCmd);
-
 
 
     compat := &cobra.Command{

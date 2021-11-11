@@ -30,7 +30,7 @@ type FileVault struct {
 }
 
 
-func path() string {
+func DefaultPath() string {
     var path = os.Getenv("IDENTITYKIT_PATH")
     var err error
 
@@ -48,7 +48,7 @@ func path() string {
 
 func (self *FileVault) Init(interactive bool)  error {
 
-    var path = path();
+    var path = DefaultPath();
 
     var path2 = path + "/ed25519.secret"
     if _, err := os.Stat(path2); !os.IsNotExist(err) {
@@ -80,7 +80,7 @@ func (self *FileVault) Init(interactive bool)  error {
 }
 
 func (self *FileVault) Secret()  (*Secret, error) {
-    var path = path() + "/ed25519.secret"
+    var path = DefaultPath() + "/ed25519.secret"
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
         return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
@@ -96,7 +96,7 @@ func (self *FileVault) Secret()  (*Secret, error) {
 }
 
 func (self *FileVault) RSASecret()  (*RSASecret, error) {
-    var path = path() + "/rsa.secret"
+    var path = DefaultPath() + "/rsa.secret"
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
         return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
