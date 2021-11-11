@@ -14,6 +14,7 @@ import (
     "net"
     "crypto/tls"
     "net/http"
+    "io/ioutil"
 )
 
 func main() {
@@ -21,12 +22,81 @@ func main() {
 
     var rootCmd = cobra.Command{
         Use:        "identitykit",
-        Short:      "\ndevguard identity managment",
+        Short:      "\ncryptographic identity toolkit",
         Version:    "1",
     }
 
     var usersa = false
     rootCmd.PersistentFlags().BoolVarP(&usersa, "rsa", "r", false, "use rsa instead of ed25519")
+
+
+
+
+
+
+
+    var mCmd = &cobra.Command{
+        Use:        "msg",
+        Aliases:    []string{"m"},
+        Short:      "generic signed messages",
+    }
+    rootCmd.AddCommand(mCmd);
+
+    mCmd.AddCommand(&cobra.Command{
+        Use:        "sign <filename>",
+        Short:      "sign a file and create a <filename>.iksig in the same directory",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            b, err := ioutil.ReadFile(args[0])
+            if err != nil { panic(err) }
+
+            sig, err := identity.Vault().Sign("iksig", b)
+            if err != nil { panic(err) }
+
+            f, err := os.OpenFile(args[0] + ".iksig", os.O_RDWR | os.O_CREATE | os.O_EXCL, 0755)
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
+
+            _, err = f.Write([]byte(sig.String() + "\n"))
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
+        },
+    });
+
+    var argIdentity string
+    verifyCmd := &cobra.Command{
+        Use:        "verify <filename> [ -I <identity> |  -A <anchor> ]",
+        Short:      "verify a file is signed by an identity or anchor using <filename>.iksig in the same directory",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+
+
+            if argIdentity == "" {
+                panic("-I or -A required")
+            }
+
+            id, err := identity.IdentityFromString(argIdentity)
+            if err != nil { panic(fmt.Errorf("%s : %w", argIdentity, err)) }
+
+            b, err := ioutil.ReadFile(args[0])
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+            bs, err := ioutil.ReadFile(args[0] + ".iksig")
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
+
+            sig, err := identity.SignatureFromString(string(bs))
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".iksig", err)) }
+
+            if sig.Verify("iksig", b, id) {
+                fmt.Println("GOOD")
+            } else {
+                fmt.Println("BAD")
+                os.Exit(2)
+            }
+        },
+    };
+    verifyCmd.Flags().StringVarP(&argIdentity, "identity", "I",  "", "public identity")
+    mCmd.AddCommand(verifyCmd);
+
 
 
     compat := &cobra.Command{
@@ -91,8 +161,14 @@ func main() {
         },
     });
 
+    tlsCmd := &cobra.Command{
+        Use:        "tls",
+        Short:      "x509 mode",
+        Aliases:    []string{"x509"},
+    }
+    rootCmd.AddCommand(tlsCmd);
 
-    rootCmd.AddCommand(&cobra.Command{
+    tlsCmd.AddCommand(&cobra.Command{
         Use:    "pem",
         Short:  "export secret as PKCS8",
         Run: func(cmd *cobra.Command, args []string) {
@@ -112,7 +188,7 @@ func main() {
         },
     });
 
-    rootCmd.AddCommand(&cobra.Command{
+    tlsCmd.AddCommand(&cobra.Command{
         Use:    "ca",
         Short:  "export public key as x509 cert",
         Run: func(cmd *cobra.Command, args []string) {
@@ -203,7 +279,8 @@ func main() {
                 key, err := identity.CreateSecret();
                 if err != nil { panic(err) }
 
-                pub := key.Identity();
+                pub,err := key.Identity();
+                if err != nil { panic(err) }
                 cert.SubjectKeyId = pub[:];
 
                 der, err := vault.SignCertificate(cert, pub);
@@ -222,13 +299,13 @@ func main() {
     cmdCert.Flags().StringSliceVar(&altips, "ip",  []string{}, "Subject Alternate Name Ip Address")
     cmdCert.Flags().StringSliceVar(&altdns, "dns", []string{}, "Subject Alternate Name DNS Name")
 
-    rootCmd.AddCommand(cmdCert);
+    tlsCmd.AddCommand(cmdCert);
 
 
 
 
 
-    rootCmd.AddCommand(&cobra.Command{
+    tlsCmd.AddCommand(&cobra.Command{
         Use:    "serve",
         Short:  "launch an https test server with a certificate bundle signed by the vault",
         Run: func(cmd *cobra.Command, args []string) {
@@ -260,7 +337,8 @@ func main() {
                     key, err := identity.CreateSecret();
                     if err != nil { panic(err) }
 
-                    pub := key.Identity();
+                    pub, err := key.Identity();
+                    if err != nil { panic(err) }
                     cert.SubjectKeyId = pub[:];
 
                     der, err := vault.SignCertificate(cert, pub);

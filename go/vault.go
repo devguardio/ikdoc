@@ -39,7 +39,7 @@ func path() string {
         if err != nil  || path == "" {
             path = "/root/"
         }
-        path += "/.devguard"
+        path += "/.identitykit"
     }
 
     os.MkdirAll(path, os.ModePerm)

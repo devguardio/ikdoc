@@ -1,9 +1,8 @@
-devguard identitykit
-====================
+cryptographic identity toolkit
+==============================
 
 
-common identity parsing for ed25519 based systems
-
+a generalization of the devguard sovereign identity managment
 
 implementation:
 
@@ -13,11 +12,56 @@ implementation:
 
 
 
+## introduction
+
+Privacy and security both start with Identity. Identity is a way to ensure you are in fact you.
+While in traditional technical design an identity would be a username and password that is stored by a third party,
+devguard uses cryptographic primitives to enable you to give an identity to yourself without registering with anyone.
+
+Identitykit takes the idea further into other use cases, such as email, TLS ("https") or file signatures.
+
+
+install the identitykit commandline util with go:
+
+```
+go install github.com/devguardio/identity/go/ik@latest
+```
+
+and initialize your secrets
+```
+ik init
+```
+your secrets are stored in ~/.identitykit and you should probably make a backup
+do not share those files with anyone. instead share your public identity
+
+```
+ik id
+```
+
+
+### file signatures
+
+
+```
+$ echo hello > hello.txt
+$ ik m sign hello.txt
+
+$ cat hello.txt.iksig
+cDIVEIBGT4SI6YN4R7RCYMKJXKSZW6MKHPCY6APP6WTSGAVTJWU3YWSVFSNHSNHBTZUTLQARKOSJKIZ4T7WZ7R5UCSTYUW2HWQA2XSXIGYE
+
+$ ik m verify hello.txt -I $(ik id)
+GOOD
+
+$ echo hellu > hello.txt
+$ ik m verify hello.txt -I $(ik id)
+BAD
+```
+
 
 
 ### using identity as x509 CA
 
-it's possible to use devguard identitykit with TLS.
+it's possible to use identitykit with TLS.
 An identity becomes a CA, which can either sign temporary client and server certs or used directly.
 Unless you call 'ik pem' , the local secret remains cold.
 
@@ -34,13 +78,13 @@ You could use export the identity as cert directly.
 note that this means the secrets are now in the pem key file, and there's a danger of leaking them.
 You probably want to avoid this.
 
-ik serve
-ik ca > /tmp/client.pem
-ik pem > /tmp/client.key
+ik tls serve
+ik tls ca > /tmp/client.pem
+ik tls pem > /tmp/client.key
 curl  https://localhost:8443 --cacert /tmp/ca.pem --cert /tmp/client.pem --key /tmp/client.key
 
 
-"ik serve" is an example tls server implemented using
+"ik tls serve" is an example tls server implemented using
 
 ```
 tls.Config {
@@ -58,9 +102,9 @@ or otherwise has a signature chain leading to "ik ca".
 for example here's how to setup etcd with a cold CA:
 
 ```
-ik ca > ca.pem
-ik cert localhost --ip 127.0.0.1 > server.pem
-ik cert localhost --ip 127.0.0.1 > client.pem
+ik tls ca > ca.pem
+ik tls cert localhost --ip 127.0.0.1 > server.pem
+ik tls cert localhost --ip 127.0.0.1 > client.pem
 etcd \
     --client-cert-auth=true     \
     --trusted-ca-file ca.pem    \
