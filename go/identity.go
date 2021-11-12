@@ -34,7 +34,7 @@ type RSAPublic  rsa.PublicKey;   // type 8
 type Identity   [32]byte; // type 9
 
 type Signature  [64]byte; // type 10
-type Sequence   uint64;   // type 11
+type Serial   uint64;   // type 11
 type Message    struct {Key string; Value []byte }  // type 14
 // type 15 reserved for extended type
 
@@ -349,11 +349,11 @@ func SecretKitFromString(from string) (*SecretKit, error) {
 // -- sequence
 
 
-func (self Sequence) String() string {
+func (self Serial) String() string {
     return self.ToString()
 }
 
-func (self Sequence) ToString() string {
+func (self Serial) ToString() string {
 
     var b bytes.Buffer
     var err = binary.Write(&b, binary.LittleEndian, self)
@@ -374,18 +374,18 @@ func (self Sequence) ToString() string {
     return to_str(11, bb[:ll]);
 }
 
-func SequenceFromString(from string) (Sequence, error) {
+func SerialFromString(from string) (Serial, error) {
     a, err := from_str(from, 11, 0)
-    if err != nil { return Sequence(0), err; }
+    if err != nil { return Serial(0), err; }
 
     for ;len(a) < 8; {
         a = append(a, 0)
     }
 
     var v = binary.LittleEndian.Uint64(a)
-    if err != nil { return Sequence(0), err; }
+    if err != nil { return Serial(0), err; }
 
-    return Sequence(v), nil
+    return Serial(v), nil
 }
 
 // -- message
@@ -503,7 +503,7 @@ func type_string(typ byte) string {
         case 8  : return "RSAPublic";
         case 9  : return "Identity";
         case 10 : return "Signature";
-        case 11 : return "Sequence";
+        case 11 : return "Serial";
         case 14 : return "Message";
         default : return "unknown type " + strconv.Itoa(int(typ));
     }

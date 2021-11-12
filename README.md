@@ -44,57 +44,56 @@ ik id
 
 ```
 $ echo hello > hello.txt
-$ ik m sign hello.txt
+$ ik m sign hello.txt --detach
 
-$ cat hello.txt.iksig
-cDIVEIBGT4SI6YN4R7RCYMKJXKSZW6MKHPCY6APP6WTSGAVTJWU3YWSVFSNHSNHBTZUTLQARKOSJKIZ4T7WZ7R5UCSTYUW2HWQA2XSXIGYE
-
-$ ik m verify hello.txt -i $(ik id)
+$ ik m verify hello.txt.ikdoc hello.txt -i $(ik id)
 GOOD
 
 $ echo hellu > hello.txt
-$ ik m verify hello.txt -i $(ik id)
+$ ik m verify hello.txt.ikdoc hello.txt -i $(ik id)
 BAD
 ```
 
 
-### sequenced anchors as multisig
+### sequential anchors and multisig
 
 identitykit generalizes the devguard sequencer into an arbitrary trust anchor.
-It is strictly sequential and NOT safe to use with multiple writers.
+Signatures carry information about the signee itself in the anchor section.
+It can require the next document to be signed by multiple keys, or add and remove authorized keys.
+The chain must be strictly sequential and it is NOT safe to use the ik cli concurrently.
 
 ```
-$ ik a new foo
-$ ik m verify hello.txt -a foo
+$ ik sign hello1.txt
+$ ik sign hello2.txt --parent hello1.txt.ikdoc
+$ ik verify hello1.txt.ikdoc --identity $(ik id)
+$ ik verify hello2.txt.ikdoc --parent hello1.txt.ikdoc
+
 ```
 
 anchors can require a minimum of members sign a message to be considered signed by the anchor.
-in this example, we create two identities and sign a file by both
+in this example, we create two identities and require both
 
 ```
-$ IDENTITYKIT_PATH=/tmp/A ik init
-$ IDENTITYKIT_PATH=/tmp/B ik init
-```
+$ IDENTITYKIT_PATH=/tmp/Alice   ik init
+$ IDENTITYKIT_PATH=/tmp/Bob     ik init
+$ IDENTITYKIT_PATH=/tmp/Alice   ik sign hello1.txt --anchor $(IDENTITYKIT_PATH=/tmp/Bob ik id) --quorum 2
+$ IDENTITYKIT_PATH=/tmp/Alice   ik sign hello2.txt --precedence hello1.txt.ikdoc
 
-then add both to an anchor
-
-```
-ik a new multisig $(IDENTITYKIT_PATH=/tmp/A ik id)
-ik a add multisig $(IDENTITYKIT_PATH=/tmp/B ik id) --signature-quorum 2
-```
-
-if we only sign the message with one identity, it is not valid
+$ ik verify hello1.txt --identity $(IDENTITYKIT_PATH=/tmp/Alice ik id)
+GOOD
 
 ```
-$ IDENTITYKIT_PATH=/tmp/A ik m sign hello.txt
-$ ik m verify hello.txt -a multisig
-/tmp/hello.txt.iksig : insufficient valid signatures
 
-$ IDENTITYKIT_PATH=/tmp/B ik m sign hello.txt
-$ ik m verify hello.txt -a multisig
+one signature is now insufficient to advance the chain
+```
+
+$ ik verify hello2.txt --precedence hello1.txt
+insufficient valid signatures
+
+$ IDENTITYKIT_PATH=/tmp/Bob ik sign hello2.txt --precedence hello1.txt
+$ ik verify hello2.txt --precedence hello1.txt
 GOOD
 ```
-
 
 
 ### using identity as x509 CA
