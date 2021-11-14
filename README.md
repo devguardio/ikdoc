@@ -44,13 +44,13 @@ ik id
 
 ```
 $ echo hello > hello.txt
-$ ik m sign hello.txt --detach
+$ ik doc sign hello.txt --detach
 
-$ ik m verify hello.txt.ikdoc hello.txt -i $(ik id)
+$ ik doc verify hello.txt.ikdoc hello.txt -i $(ik id)
 GOOD
 
 $ echo hellu > hello.txt
-$ ik m verify hello.txt.ikdoc hello.txt -i $(ik id)
+$ ik doc verify hello.txt.ikdoc hello.txt -i $(ik id)
 BAD
 ```
 
@@ -63,10 +63,10 @@ It can require the next document to be signed by multiple keys, or add and remov
 The chain must be strictly sequential and it is NOT safe to use the ik cli concurrently.
 
 ```
-$ ik sign hello1.txt
-$ ik sign hello2.txt --parent hello1.txt.ikdoc
-$ ik verify hello1.txt.ikdoc --identity $(ik id)
-$ ik verify hello2.txt.ikdoc --parent hello1.txt.ikdoc
+$ ik doc sign hello1.txt
+$ ik doc sign hello2.txt --parent hello1.txt.ikdoc
+$ ik doc verify hello1.txt.ikdoc --identity $(ik id)
+$ ik doc verify hello2.txt.ikdoc --parent hello1.txt.ikdoc
 
 ```
 
@@ -76,10 +76,10 @@ in this example, we create two identities and require both
 ```
 $ IDENTITYKIT_PATH=/tmp/Alice   ik init
 $ IDENTITYKIT_PATH=/tmp/Bob     ik init
-$ IDENTITYKIT_PATH=/tmp/Alice   ik sign hello1.txt --anchor $(IDENTITYKIT_PATH=/tmp/Bob ik id) --quorum 2
-$ IDENTITYKIT_PATH=/tmp/Alice   ik sign hello2.txt --precedence hello1.txt.ikdoc
+$ IDENTITYKIT_PATH=/tmp/Alice   ik doc sign hello1.txt --anchor $(IDENTITYKIT_PATH=/tmp/Bob ik id) --quorum 2
+$ IDENTITYKIT_PATH=/tmp/Alice   ik doc sign hello2.txt --precedence hello1.txt.ikdoc
 
-$ ik verify hello1.txt --identity $(IDENTITYKIT_PATH=/tmp/Alice ik id)
+$ ik doc verify hello1.txt --identity $(IDENTITYKIT_PATH=/tmp/Alice ik id)
 GOOD
 
 ```
@@ -87,11 +87,11 @@ GOOD
 one signature is now insufficient to advance the chain
 ```
 
-$ ik verify hello2.txt --precedence hello1.txt
+$ ik doc verify hello2.txt --precedence hello1.txt
 insufficient valid signatures
 
 $ IDENTITYKIT_PATH=/tmp/Bob ik sign hello2.txt --precedence hello1.txt
-$ ik verify hello2.txt --precedence hello1.txt
+$ ik doc verify hello2.txt --precedence hello1.txt
 GOOD
 ```
 
