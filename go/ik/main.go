@@ -24,7 +24,7 @@ func main() {
 
     compat := &cobra.Command{
         Use:        "convert <id>",
-        Short:      "legacy conversion commands",
+        Short:      "conversion commands",
         Aliases:    []string{"cv", "conv"},
     }
     compat.AddCommand(&cobra.Command{
@@ -35,6 +35,30 @@ func main() {
             id, err := identity.IdentityFromString(args[0])
             if err != nil { panic(err) }
             fmt.Println(id.String58())
+        },
+    });
+    compat.AddCommand(&cobra.Command{
+        Use:        "secret2public <Secret>",
+        Short:      "convert a secret to an identity",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            s, err := identity.SecretFromString(args[0])
+            if err != nil { panic(err) }
+            id, err := s.Identity();
+            if err != nil { panic(err) }
+            fmt.Println(id.String())
+        },
+    });
+    compat.AddCommand(&cobra.Command{
+        Use:        "secret2address <Secret>",
+        Short:      "convert a secret to an address",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            s, err := identity.SecretFromString(args[0])
+            if err != nil { panic(err) }
+            xs := s.XSecret();
+            if err != nil { panic(err) }
+            fmt.Println(xs.XPublic().String())
         },
     });
     rootCmd.AddCommand(compat);

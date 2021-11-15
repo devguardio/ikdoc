@@ -14,6 +14,7 @@ import (
     "net"
     "crypto/tls"
     "net/http"
+    "io"
 )
 
 func tlsCmd() *cobra.Command {
@@ -218,6 +219,33 @@ func tlsCmd() *cobra.Command {
             if err != nil { panic(err) }
         },
     });
+
+    tlsCmd.AddCommand(&cobra.Command{
+        Use:    "get <url>",
+        Short:  "https test client (does not check server cert!)",
+        Args:   cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            vault := identity.Vault()
+            tls, err := identity.NewTlsClient(vault)
+            if err != nil { panic(err) }
+
+            tls.InsecureSkipVerify = true
+
+            client := &http.Client{Transport: &http.Transport{ TLSClientConfig: tls }}
+
+            resp, err := client.Get(args[0])
+            if err != nil { panic(err) }
+
+            io.Copy(os.Stdout, resp.Body)
+
+            if resp.StatusCode >= 300 {
+                os.Exit(resp.StatusCode)
+            }
+
+        },
+    });
+
 
     return tlsCmd
 }

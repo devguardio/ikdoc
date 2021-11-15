@@ -217,3 +217,31 @@ func VerifyPeerCertificate (certificates [][]byte, verifiedChains [][]*x509.Cert
 
     return nil
 }
+
+
+func NewTlsClient(vault VaultI) (*tls.Config, error) {
+
+    key, err := Vault().ExportSecret()
+    if err != nil { return nil, err }
+
+    pub, err := vault.Identity();
+    if err != nil { return nil, err }
+
+    cert, err := pub.ToCertificate();
+    if err != nil { return nil, err }
+
+    der, err := vault.SignCertificate(cert, pub);
+    if err != nil { return nil, err }
+
+    tcert := tls.Certificate{
+        Certificate: [][]byte{der},
+        PrivateKey: key.ToGo(),
+    }
+
+    tlsconfig := &tls.Config{
+        RootCAs:        x509.NewCertPool(),
+        Certificates:   []tls.Certificate{tcert},
+    }
+
+    return tlsconfig, nil
+}

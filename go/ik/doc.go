@@ -32,6 +32,7 @@ func docCmd() *cobra.Command {
 
             f, err := os.Open(args[0])
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            defer f.Close();
 
             _ , err = identity.ReadDocument(f, identity.DocumentOptDump{Writer: os.Stdout})
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
@@ -57,6 +58,7 @@ func docCmd() *cobra.Command {
             if argParent != "" {
                 f, err := os.Open(argParent)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
+                defer f.Close();
 
                 parent, err := identity.ReadDocument(f)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
@@ -78,6 +80,8 @@ func docCmd() *cobra.Command {
                 }
                 f, err := os.Open(n)
                 if err != nil { panic(err) }
+                defer f.Close();
+
                 err = doc.WithDetached(f, filepath.Base(n))
                 if err != nil { panic(err) }
             }
@@ -91,6 +95,7 @@ func docCmd() *cobra.Command {
 
             f, err := os.OpenFile(args[0] + ".ikdoc", os.O_RDWR | os.O_CREATE | os.O_EXCL, 0755)
             if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".ikdoc", err)) }
+            defer f.Close();
 
             _, err = f.Write(b)
             if err != nil { panic(err) }
@@ -114,6 +119,7 @@ func docCmd() *cobra.Command {
             if argParent != "" {
                 f, err := os.Open(argParent)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
+                defer f.Close();
 
                 precedent, err := identity.ReadDocument(f)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
@@ -173,6 +179,7 @@ func docCmd() *cobra.Command {
                     fmt.Printf("%s %s : %s\n", color.RedString("✖ detach"), v.Name, err);
                     continue
                 }
+                defer f.Close();
 
                 h := sha256.New()
                 h.Write([]byte(v.Name))
