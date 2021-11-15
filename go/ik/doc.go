@@ -44,8 +44,9 @@ func docCmd() *cobra.Command {
     var argParent   string
     var argOutfile  string
     signCmd := &cobra.Command{
-        Use:        "sign <filename> [<filename>  ...] --detached <filename>  [<filename> ...]",
+        Use:        "sign <outfile> [<filename>  ...] --detached <filename>  [<filename> ...]",
         Short:      "sign files and pack into a <filename>.ikdoc",
+        Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
             var vault = identity.Vault()
@@ -65,7 +66,7 @@ func docCmd() *cobra.Command {
 
                 doc = parent.NewSequence();
             }
-            for _, n := range args {
+            for _, n := range args[1:] {
                 if argOutfile == "" {
                     argOutfile = n + ".ikdoc"
                 }
@@ -90,11 +91,15 @@ func docCmd() *cobra.Command {
                 doc.Anchors = []identity.Identity{*id}
             }
 
-            b, err := doc.EncodeAndSign(vault);
-            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".ikdoc", err)) }
+            if !strings.Contains(args[0], ".") {
+                args[0] += ".ikdoc"
+            }
 
-            f, err := os.OpenFile(args[0] + ".ikdoc", os.O_RDWR | os.O_CREATE | os.O_EXCL, 0755)
-            if err != nil { panic(fmt.Errorf("%s : %w", args[0] + ".ikdoc", err)) }
+            b, err := doc.EncodeAndSign(vault);
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+            f, err := os.OpenFile(args[0], os.O_RDWR | os.O_CREATE | os.O_EXCL, 0755)
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
             defer f.Close();
 
             _, err = f.Write(b)

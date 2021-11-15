@@ -44,13 +44,13 @@ ik id
 
 ```
 $ echo hello > hello.txt
-$ ik doc sign hello.txt --detach
+$ ik doc sign hello.ikdoc --detached hello.txt
 
-$ ik doc verify hello.txt.ikdoc hello.txt -i $(ik id)
+$ ik doc verify hello.ikdoc -i $(ik id)
 GOOD
 
 $ echo hellu > hello.txt
-$ ik doc verify hello.txt.ikdoc hello.txt -i $(ik id)
+$ ik doc verify hello.ikdoc -i $(ik id) 
 BAD
 ```
 
@@ -63,38 +63,12 @@ It can require the next document to be signed by multiple keys, or add and remov
 The chain must be strictly sequential and it is NOT safe to use the ik cli concurrently.
 
 ```
-$ ik doc sign hello1.txt
-$ ik doc sign hello2.txt --parent hello1.txt.ikdoc
-$ ik doc verify hello1.txt.ikdoc --identity $(ik id)
-$ ik doc verify hello2.txt.ikdoc --parent hello1.txt.ikdoc
+$ ik doc sign hello1.ikdoc hello1.txt
+$ ik doc sign hello2.ikdoc hello2.txt --parent hello1.ikdoc
+$ ik doc verify hello1.ikdoc --identity $(ik id)
+$ ik doc verify hello2.ikdoc --parent hello1.ikdoc
 
 ```
-
-anchors can require a minimum of members sign a message to be considered signed by the anchor.
-in this example, we create two identities and require both
-
-```
-$ IDENTITYKIT_PATH=/tmp/Alice   ik init
-$ IDENTITYKIT_PATH=/tmp/Bob     ik init
-$ IDENTITYKIT_PATH=/tmp/Alice   ik doc sign hello1.txt --anchor $(IDENTITYKIT_PATH=/tmp/Bob ik id) --quorum 2
-$ IDENTITYKIT_PATH=/tmp/Alice   ik doc sign hello2.txt --precedence hello1.txt.ikdoc
-
-$ ik doc verify hello1.txt --identity $(IDENTITYKIT_PATH=/tmp/Alice ik id)
-GOOD
-
-```
-
-one signature is now insufficient to advance the chain
-```
-
-$ ik doc verify hello2.txt --precedence hello1.txt
-insufficient valid signatures
-
-$ IDENTITYKIT_PATH=/tmp/Bob ik sign hello2.txt --precedence hello1.txt
-$ ik doc verify hello2.txt --precedence hello1.txt
-GOOD
-```
-
 
 ### using identity as x509 CA
 
