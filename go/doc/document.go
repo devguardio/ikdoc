@@ -10,6 +10,8 @@ import (
     "crypto/sha256"
     "crypto/subtle"
     "strings"
+    "path/filepath"
+    "os"
 )
 
 
@@ -410,3 +412,58 @@ func (self *Document) NewSequence() *Document {
     return doc
 }
 
+
+func (doc *Document) VerifyDetached(searchdir string, ignoremissing bool, opts ...interface{}) error {
+
+    var debug io.Writer = nil;
+    for _,opt := range opts {
+        if v, ok := opt.(DocumentOptDump); ok {
+            debug = v
+        }
+    }
+
+    var failed = false
+    for _,v := range doc.Detached {
+        if strings.Contains(v.Name, "/") {
+            return fmt.Errorf("illegal name %s", v.Name)
+        }
+        rel := filepath.Join(searchdir, v.Name)
+
+        f, err := os.Open(rel)
+        if err != nil {
+            if debug != nil {
+                fmt.Fprintf(debug, "%s %s : %s\n", color.RedString("✖ detach"), v.Name, err);
+            }
+            if !ignoremissing {
+                failed = true
+            }
+            continue
+        }
+        defer f.Close();
+
+        h := sha256.New()
+        h.Write([]byte(v.Name))
+        size, err := io.Copy(h, f);
+        if err != nil { return fmt.Errorf("%s : %w", rel, err) }
+
+        if subtle.ConstantTimeCompare(v.Hash[:], h.Sum(nil)) != 1 {
+            if debug != nil {
+                fmt.Fprintf(debug, "%s %s : hash verification failed\n", color.RedString("✖ detach"), rel)
+            }
+            failed = true
+            continue
+        }
+
+        if v.Size != uint64(size) {
+            return fmt.Errorf("%s : file size is different. did you hit the hash collision jackpot?", rel)
+        }
+
+        fmt.Println(color.GreenString("✔ detach"), v.Name)
+    }
+
+    if failed {
+        return fmt.Errorf("detached content verification failed")
+    } else {
+        return nil
+    }
+}

@@ -13,8 +13,6 @@ import (
     "path/filepath"
     "strings"
     "crypto/sha256"
-    "io"
-    "crypto/subtle"
 )
 
 func docCmd() *cobra.Command {
@@ -40,7 +38,58 @@ func docCmd() *cobra.Command {
         },
     })
 
+    syncCmd := &cobra.Command{
+        Use:    "sync <ikdoc>",
+        Short:  "sync ikdoc to latest head in .ikchain and verify",
+        Args:   cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            for ;; {
+
+                docbytes, err := ioutil.ReadFile(args[0])
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+                parent, err := ikdoc.ReadDocument(bytes.NewReader(docbytes))
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+                parenthash := sha256.Sum256(docbytes);
+
+                chaindir := filepath.Join(filepath.Dir(args[0]), ".ikchain");
+
+                nexthash, err := ioutil.ReadFile(filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash)))
+                if err != nil || len(nexthash) == 0 {
+                    fmt.Printf("%s %x\n", color.GreenString("✔ latest"), parenthash)
+
+                    err = parent.VerifyDetached(filepath.Dir(args[0]), true, ikdoc.DocumentOptDump{Writer: os.Stdout})
+                    if err != nil {
+                        fmt.Printf("%s : %v\n", args[0], err);
+                        os.Exit(2)
+                    }
+                    return
+                }
+
+                fn := filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
+                nextbytes, err := ioutil.ReadFile(fn)
+                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+
+                _ , err = parent.VerifySuccessor(nextbytes, ikdoc.DocumentOptDump{Writer: os.Stdout})
+                if err != nil {
+                    fmt.Printf("%s : %v\n", fn, err);
+                    os.Exit(2)
+                }
+
+                err = ioutil.WriteFile(args[0], nextbytes, 0644);
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            }
+
+
+        },
+    }
+    rootCmd.AddCommand(syncCmd);
+
+
     var argAnon     bool
+    var argChain    bool
     var argDetached []string
     var argParent   string
     var argOutfile  string
@@ -57,12 +106,12 @@ func docCmd() *cobra.Command {
 
             doc := &ikdoc.Document {}
 
+            var parentbytes []byte
             if argParent != "" {
-                f, err := os.Open(argParent)
+                parentbytes, err = ioutil.ReadFile(argParent)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
-                defer f.Close();
 
-                parent, err := ikdoc.ReadDocument(f)
+                parent, err := ikdoc.ReadDocument(bytes.NewReader(parentbytes))
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
                 doc = parent.NewSequence();
@@ -99,17 +148,56 @@ func docCmd() *cobra.Command {
             b, err := doc.EncodeAndSign(vault);
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-            f, err := os.OpenFile(args[0], os.O_RDWR | os.O_CREATE | os.O_EXCL, 0755)
-            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+            if argChain {
+
+                chaindir := filepath.Join(filepath.Dir(args[0]), ".ikchain");
+                err = os.MkdirAll(chaindir, os.ModePerm)
+                if err != nil { panic(fmt.Errorf("%s : %w", chaindir, err)) }
+
+                hash := sha256.Sum256(b)
+                fn := filepath.Join(chaindir, fmt.Sprintf("%x", hash));
+                err = ioutil.WriteFile(fn, b, 0644)
+                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+
+
+                if parentbytes != nil {
+                    parenthash := sha256.Sum256(parentbytes)
+
+                    fn := filepath.Join(chaindir, fmt.Sprintf("%x", parenthash));
+                    err = ioutil.WriteFile(fn, parentbytes, 0644)
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+
+                    fn = filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash));
+                    f, err := os.OpenFile(fn, os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                    defer f.Close();
+
+                    _, err = f.Write([]byte(fmt.Sprintf("%x\n", hash)))
+                    if err != nil { panic(err) }
+                }
+            }
+
+            f, err := os.OpenFile(args[0], os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
+            if err != nil {
+                if argChain && argParent == args[0] {
+                    f, err = os.Create(args[0])
+                }
+            }
+            if err != nil {
+                panic(fmt.Errorf("%s : %w", args[0], err))
+            }
             defer f.Close();
 
             _, err = f.Write(b)
             if err != nil { panic(err) }
+
         },
     }
     signCmd.Flags().StringArrayVarP(&argDetached,   "detached", "d",  []string{}, "do not embedd the document")
     signCmd.Flags().BoolVarP(&argAnon,              "anon",     "n",  false, "do not reveal signee (also prevents sequencing)")
     signCmd.Flags().StringVarP(&argParent,          "parent",   "p",  "", "document follows a previous document in a sequence")
+    signCmd.Flags().BoolVarP(&argChain,             "chain",    "c",  false, "record history in .ikchain for sync")
     rootCmd.AddCommand(signCmd);
 
 
@@ -173,39 +261,9 @@ func docCmd() *cobra.Command {
             }
 
 
-            for _,v := range doc.Detached {
-                if strings.Contains(v.Name, "/") {
-                    // illegal, just ignore
-                    continue
-                }
-                rel := filepath.Join(args[0], "..", v.Name)
-
-                f, err := os.Open(rel)
-                if err != nil {
-                    fmt.Printf("%s %s : %s\n", color.RedString("✖ detach"), v.Name, err);
-                    continue
-                }
-                defer f.Close();
-
-                h := sha256.New()
-                h.Write([]byte(v.Name))
-                size, err := io.Copy(h, f);
-                if err != nil { panic(fmt.Errorf("%s : %w", rel, err)) }
-
-                if subtle.ConstantTimeCompare(v.Hash[:], h.Sum(nil)) != 1 {
-                    fmt.Printf("%s %s : hash verification failed\n", color.RedString("✖ detach"), rel)
-                    os.Exit(2)
-                }
-
-                if v.Size != uint64(size) {
-                    panic(fmt.Errorf("%s : file size is different. did you hit the hash collision jackpot?", rel))
-                }
-
-                fmt.Println(color.GreenString("✔ detach"), v.Name)
-            }
-
-            if len(args) > 1 {
-                os.Exit(2)
+            err := doc.VerifyDetached(filepath.Dir(args[0]), true, ikdoc.DocumentOptDump{Writer: os.Stdout})
+            if err != nil {
+                panic(err)
             }
 
         },
