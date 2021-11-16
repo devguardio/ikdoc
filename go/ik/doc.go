@@ -39,50 +39,15 @@ func docCmd() *cobra.Command {
     })
 
     syncCmd := &cobra.Command{
-        Use:    "sync <ikdoc>",
-        Short:  "sync ikdoc to latest head in .ikchain and verify",
+        Use:    "sync <ikdoc> [url]",
+        Short:  "sync ikdoc to a local or remote chain and verify",
         Args:   cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
-            for ;; {
+            var url = "";
+            if len(args) > 1 { url = args[1] }
 
-                docbytes, err := ioutil.ReadFile(args[0])
-                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
-
-                parent, err := ikdoc.ReadDocument(bytes.NewReader(docbytes))
-                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
-
-                parenthash := sha256.Sum256(docbytes);
-
-                chaindir := filepath.Join(filepath.Dir(args[0]), ".ikchain");
-
-                nexthash, err := ioutil.ReadFile(filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash)))
-                if err != nil || len(nexthash) == 0 {
-                    fmt.Printf("%s %x\n", color.GreenString("✔ latest"), parenthash)
-
-                    err = parent.VerifyDetached(filepath.Dir(args[0]), true, ikdoc.DocumentOptDump{Writer: os.Stdout})
-                    if err != nil {
-                        fmt.Printf("%s : %v\n", args[0], err);
-                        os.Exit(2)
-                    }
-                    return
-                }
-
-                fn := filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
-                nextbytes, err := ioutil.ReadFile(fn)
-                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-
-                _ , err = parent.VerifySuccessor(nextbytes, ikdoc.DocumentOptDump{Writer: os.Stdout})
-                if err != nil {
-                    fmt.Printf("%s : %v\n", fn, err);
-                    os.Exit(2)
-                }
-
-                err = ioutil.WriteFile(args[0], nextbytes, 0644);
-                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
-            }
-
-
+            ikdoc.Sync(args[0], url)
         },
     }
     rootCmd.AddCommand(syncCmd);
@@ -274,3 +239,5 @@ func docCmd() *cobra.Command {
 
     return rootCmd
 }
+
+
