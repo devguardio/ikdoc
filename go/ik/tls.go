@@ -3,6 +3,7 @@ package main
 import (
     "github.com/spf13/cobra"
     "github.com/devguardio/identity/go"
+    iktls "github.com/devguardio/identity/go/tls"
     "log"
     "fmt"
     "os"
@@ -203,13 +204,13 @@ func tlsCmd() *cobra.Command {
                     }, nil
                 },
                 ClientAuth: tls.RequireAnyClientCert,
-                VerifyPeerCertificate: identity.VerifyPeerCertificate,
+                VerifyPeerCertificate: iktls.VerifyPeerCertificate,
             };
 
             server := http.Server{
                 Addr:      "0.0.0.0:8443",
                 Handler:   http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-                    id := identity.ClaimedPeerIdentity(r.TLS);
+                    id := iktls.ClaimedPeerIdentity(r.TLS);
                     fmt.Fprintf(w, "Hello, %s\n", id.String())
                 }),
                 TLSConfig: tlsconfig,
@@ -227,7 +228,7 @@ func tlsCmd() *cobra.Command {
         Run: func(cmd *cobra.Command, args []string) {
 
             vault := identity.Vault()
-            tls, err := identity.NewTlsClient(vault)
+            tls, err := iktls.NewTlsClient(vault)
             if err != nil { panic(err) }
 
             tls.InsecureSkipVerify = true

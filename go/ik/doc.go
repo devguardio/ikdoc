@@ -3,6 +3,7 @@ package main
 import (
     "github.com/spf13/cobra"
     "github.com/devguardio/identity/go"
+    ikdoc "github.com/devguardio/identity/go/doc"
     "log"
     "fmt"
     "os"
@@ -34,7 +35,7 @@ func docCmd() *cobra.Command {
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
             defer f.Close();
 
-            _ , err = identity.ReadDocument(f, identity.DocumentOptDump{Writer: os.Stdout})
+            _ , err = ikdoc.ReadDocument(f, ikdoc.DocumentOptDump{Writer: os.Stdout})
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
         },
     })
@@ -54,14 +55,14 @@ func docCmd() *cobra.Command {
             id, err:= vault.Identity()
             if err != nil { panic(err) }
 
-            doc := &identity.Document {}
+            doc := &ikdoc.Document {}
 
             if argParent != "" {
                 f, err := os.Open(argParent)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
                 defer f.Close();
 
-                parent, err := identity.ReadDocument(f)
+                parent, err := ikdoc.ReadDocument(f)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
                 doc = parent.NewSequence();
@@ -106,9 +107,9 @@ func docCmd() *cobra.Command {
             if err != nil { panic(err) }
         },
     }
-    signCmd.Flags().StringArrayVarP(&argDetached, "detached", "d",  []string{}, "do not embedd the document")
-    signCmd.Flags().BoolVarP(&argAnon,          "anon",     "n",  false, "do not reveal signee (also prevents sequencing)")
-    signCmd.Flags().StringVarP(&argParent,      "parent",   "p",  "", "document follows a previous document in a sequence")
+    signCmd.Flags().StringArrayVarP(&argDetached,   "detached", "d",  []string{}, "do not embedd the document")
+    signCmd.Flags().BoolVarP(&argAnon,              "anon",     "n",  false, "do not reveal signee (also prevents sequencing)")
+    signCmd.Flags().StringVarP(&argParent,          "parent",   "p",  "", "document follows a previous document in a sequence")
     rootCmd.AddCommand(signCmd);
 
 
@@ -119,20 +120,20 @@ func docCmd() *cobra.Command {
         Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
-            var doc *identity.Document
+            var doc *ikdoc.Document
 
             if argParent != "" {
                 f, err := os.Open(argParent)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
                 defer f.Close();
 
-                precedent, err := identity.ReadDocument(f)
+                precedent, err := ikdoc.ReadDocument(f)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
                 b, err := ioutil.ReadFile(args[0])
                 if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-                doc, err = precedent.VerifySuccessor(b, identity.DocumentOptDump{Writer: os.Stdout})
+                doc, err = precedent.VerifySuccessor(b, ikdoc.DocumentOptDump{Writer: os.Stdout})
                 if err != nil {
                     fmt.Printf("%s : %v\n", args[0], err);
                     os.Exit(2)
@@ -146,7 +147,7 @@ func docCmd() *cobra.Command {
                 b, err := ioutil.ReadFile(args[0])
                 if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-                doc, err = identity.ReadDocument(bytes.NewReader(b))
+                doc, err = ikdoc.ReadDocument(bytes.NewReader(b))
                 if err != nil { panic(err) }
 
                 err = doc.Verify()

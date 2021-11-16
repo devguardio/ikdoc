@@ -1,6 +1,7 @@
-package identity
+package doc
 
 import (
+    "github.com/devguardio/identity/go"
     "fmt"
     "io"
     "encoding/binary"
@@ -24,7 +25,7 @@ const (
 )
 
 type DocumentSequence struct {
-    Serial      Serial
+    Serial      identity.Serial
     Precedent   [32]byte
     Lineage     [4]byte
     Quorum      uint16
@@ -44,11 +45,11 @@ type DocumentAttachment struct {
 type Document struct {
     Attached        []DocumentAttachment
     Detached        []DocumentDetachment
-    Anchors         []Identity
+    Anchors         []identity.Identity
     Sequence        *DocumentSequence
 
     SignedSize      uint32
-    Signatures      []Signature
+    Signatures      []identity.Signature
 
     DocumentHash    []byte
 }
@@ -144,7 +145,7 @@ func ReadDocument(r io.ReadSeeker, opts ...interface{}) (*Document, error) {
             }
 
         case DocumentFieldAnchor:
-            var anchor Identity
+            var anchor identity.Identity
             _, err = io.ReadFull(r, anchor[:])
             if err != nil { return nil, err }
             self.Anchors = append(self.Anchors, anchor)
@@ -196,7 +197,7 @@ func ReadDocument(r io.ReadSeeker, opts ...interface{}) (*Document, error) {
         switch k[0] {
         case DocumentFieldSignature:
 
-            var v Signature
+            var v identity.Signature
             _, err = io.ReadFull(r, v[:])
             if err != nil { return nil, fmt.Errorf("reading signatures: %w", err) }
             self.Signatures = append(self.Signatures, v)
@@ -291,7 +292,7 @@ func (self *Document) Encode() ([]byte, error) {
     return b, nil
 }
 
-func (self *Document) EncodeAndSign(s Signer) ([]byte, error) {
+func (self *Document) EncodeAndSign(s identity.Signer) ([]byte, error) {
 
     b, err := self.Encode()
     if err != nil { panic(err) }
