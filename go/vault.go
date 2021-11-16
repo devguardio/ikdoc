@@ -8,14 +8,19 @@ import (
     "log"
     "crypto/x509"
     "crypto/rand"
+    "regexp"
+
 )
 
 
 type VaultI interface {
     Init(interactive bool) error
-    Identity()  (*Identity, error)
-    XPublic()   (*XPublic, error)
-    RSAPublic() (*RSAPublic, error)
+
+    Domain(string) VaultI
+
+    Identity()  (*Identity,     error)
+    XPublic()   (*XPublic,      error)
+    RSAPublic() (*RSAPublic,    error)
 
     Sign                (subject string, message []byte) (*Signature, error)
     SignCertificate     (template * x509.Certificate, pub *Identity)    ([]byte, error)
@@ -27,10 +32,10 @@ type VaultI interface {
 }
 
 type FileVault struct {
+    domain string
 }
 
-
-func DefaultPath() string {
+func DefaultPath(domain string) string {
     var path = os.Getenv("IDENTITYKIT_PATH")
     var err error
 
@@ -42,13 +47,27 @@ func DefaultPath() string {
         path += "/.identitykit"
     }
 
+    if domain != "" {
+        path += "/" + domain
+    }
+
     os.MkdirAll(path, os.ModePerm)
+
     return path;
+}
+
+func (self *FileVault) Domain(domain string) VaultI {
+
+    reg, err := regexp.Compile("[^a-zA-Z0-9]+")
+    if err != nil { panic(err) }
+    domain = reg.ReplaceAllString(domain, "_")
+
+    return &FileVault{domain:domain}
 }
 
 func (self *FileVault) Init(interactive bool)  error {
 
-    var path = DefaultPath();
+    var path = DefaultPath(self.domain);
 
     var path2 = path + "/ed25519.secret"
     if _, err := os.Stat(path2); !os.IsNotExist(err) {
@@ -80,10 +99,14 @@ func (self *FileVault) Init(interactive bool)  error {
 }
 
 func (self *FileVault) Secret()  (*Secret, error) {
-    var path = DefaultPath() + "/ed25519.secret"
+    var path = DefaultPath(self.domain) + "/ed25519.secret"
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
-        return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
+        if self.domain != "" {
+            return nil, errors.New("missing " + path + "\n=> run 'ik init --domain " + self.domain + "' to create a new identity")
+        } else {
+            return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
+        }
     }
 
     content, err := ioutil.ReadFile(path)
@@ -96,10 +119,14 @@ func (self *FileVault) Secret()  (*Secret, error) {
 }
 
 func (self *FileVault) RSASecret()  (*RSASecret, error) {
-    var path = DefaultPath() + "/rsa.secret"
+    var path = DefaultPath(self.domain) + "/rsa.secret"
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
-        return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
+        if self.domain != "" {
+            return nil, errors.New("missing " + path + "\n=> run 'ik init --domain " + self.domain + "' to create a new identity")
+        } else {
+            return nil, errors.New("missing " + path + "\n=> run 'ik init' to create a new identity")
+        }
     }
 
     content, err := ioutil.ReadFile(path)
@@ -171,5 +198,4 @@ func Vault() VaultI {
     var self = &FileVault{}
     return self
 }
-
 

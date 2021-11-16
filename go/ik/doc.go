@@ -65,6 +65,7 @@ func docCmd() *cobra.Command {
         Run: func(cmd *cobra.Command, args []string) {
 
             var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
 
             id, err:= vault.Identity()
             if err != nil { panic(err) }

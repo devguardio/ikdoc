@@ -30,14 +30,17 @@ func tlsCmd() *cobra.Command {
         Use:    "pem",
         Short:  "export secret as PKCS8",
         Run: func(cmd *cobra.Command, args []string) {
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
+
             if usersa {
-                p, err := identity.Vault().ExportRSASecret()
+                p, err := vault.ExportRSASecret()
                 if err != nil { panic(err) }
                 pem, err := p.ToPem()
                 if err != nil { panic(err) }
                 os.Stdout.Write([]byte(pem))
             } else {
-                p, err := identity.Vault().ExportSecret()
+                p, err := vault.ExportSecret()
                 if err != nil { panic(err) }
                 pem, err := p.ToPem()
                 if err != nil { panic(err) }
@@ -50,7 +53,8 @@ func tlsCmd() *cobra.Command {
         Use:    "ca",
         Short:  "export public key as x509 cert",
         Run: func(cmd *cobra.Command, args []string) {
-            var vault = identity.Vault();
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
 
             if usersa {
                 pub, err := vault.RSAPublic();
@@ -90,6 +94,7 @@ func tlsCmd() *cobra.Command {
         Args:   cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
             var vault = identity.Vault();
+            if domain != "" { vault = vault.Domain(domain) }
 
             var altipsi = make([]net.IP, len(altips))
             for i,_ := range(altips) {
@@ -165,6 +170,7 @@ func tlsCmd() *cobra.Command {
         Run: func(cmd *cobra.Command, args []string) {
 
             var vault = identity.Vault();
+            if domain != "" { vault = vault.Domain(domain) }
             var tlsconfig = &tls.Config{
                 InsecureSkipVerify: true,
                 MaxVersion:         tls.VersionTLS12,
@@ -228,6 +234,7 @@ func tlsCmd() *cobra.Command {
         Run: func(cmd *cobra.Command, args []string) {
 
             vault := identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
             tls, err := iktls.NewTlsClient(vault)
             if err != nil { panic(err) }
 

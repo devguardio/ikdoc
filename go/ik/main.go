@@ -9,6 +9,7 @@ import (
 )
 
 var usersa = false
+var domain = ""
 
 func main() {
     log.SetFlags(log.Lshortfile);
@@ -64,18 +65,22 @@ func main() {
     rootCmd.AddCommand(compat);
 
     rootCmd.PersistentFlags().BoolVarP(&usersa, "rsa", "r", false, "use rsa instead of ed25519")
+    rootCmd.PersistentFlags().StringVarP(&domain, "domain", "u", "", "use vault in separate user specific domain")
 
     rootCmd.AddCommand(&cobra.Command{
         Use:        "identity ",
         Aliases:    []string{"id"},
         Short:      "print my identity",
         Run: func(cmd *cobra.Command, args []string) {
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
+
             if usersa {
-                id, err := identity.Vault().RSAPublic()
+                id, err := vault.RSAPublic()
                 if err != nil { panic(err) }
                 fmt.Println(id)
             } else {
-                id, err := identity.Vault().Identity()
+                id, err := vault.Identity()
                 if err != nil { panic(err) }
                 fmt.Println(id)
             }
@@ -87,10 +92,13 @@ func main() {
         Aliases:  []string{"xp", "addr"},
         Short:  "print my DH address",
         Run: func(cmd *cobra.Command, args []string) {
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
+
             if usersa {
                 panic("rsa doesn't work with diffie-hellman")
             } else {
-                id, err := identity.Vault().XPublic()
+                id, err := vault.XPublic()
                 if err != nil { panic(err) }
                 fmt.Println(id)
             }
@@ -101,10 +109,13 @@ func main() {
         Use:    "init",
         Short:  "initialize empty vault",
         Run: func(cmd *cobra.Command, args []string) {
-            err := identity.Vault().Init(true)
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
+
+            err := vault.Init(true)
             if err != nil { panic(err) }
 
-            id, err := identity.Vault().Identity()
+            id, err := vault.Identity()
             if err != nil { panic(err) }
             fmt.Println(id)
         },
