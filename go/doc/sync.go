@@ -14,6 +14,7 @@ import (
     "github.com/fatih/color"
     "strings"
     "crypto/subtle"
+    "time"
 )
 
 
@@ -118,12 +119,15 @@ func httpdownload(url string) ([]byte, error) {
     tls.InsecureSkipVerify = true
 
     client := &http.Client{Transport: &http.Transport{ TLSClientConfig: tls }}
+    client.Timeout = time.Minute
+
 
     req, err := http.NewRequest("GET", url, nil)
     if err != nil { return nil, err }
 
     resp, err := client.Do(req)
     if err != nil { return nil, err }
+    defer resp.Body.Close();
 
     if resp.StatusCode == 200 {
         return ioutil.ReadAll(io.LimitReader(resp.Body, 20000000))
