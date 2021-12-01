@@ -6,6 +6,7 @@ import (
     "log"
     "fmt"
     "os"
+    "encoding/hex"
 )
 
 var usersa = false
@@ -28,6 +29,19 @@ func main() {
         Short:      "conversion commands",
         Aliases:    []string{"cv", "conv"},
     }
+    compat.AddCommand(&cobra.Command{
+        Use:        "hex2secret <hex>",
+        Short:      "convert a hex encoded secret seed to an ik secret",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            decoded, err := hex.DecodeString(args[0])
+            if err != nil { panic(err) }
+            if len(decoded) < 32 {panic("must be at least 32 bytes long")}
+            var sk identity.Secret
+            copy(sk[:], decoded[:32])
+            fmt.Println(sk.ToString())
+        },
+    });
     compat.AddCommand(&cobra.Command{
         Use:        "id32to58 <id>",
         Short:      "convert a b32 identity to a legacy b58",
