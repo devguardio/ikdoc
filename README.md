@@ -44,7 +44,7 @@ ik id
 
 ```
 $ echo hello > hello.txt
-$ ik doc sign hello.ikdoc --detached hello.txt
+$ ik doc sign hello.ikdoc hello.txt
 
 $ ik doc verify hello.ikdoc -i $(ik id)
 GOOD
@@ -63,12 +63,28 @@ It can require the next document to be signed by multiple keys, or add and remov
 The chain must be strictly sequential and it is NOT safe to use the ik cli concurrently.
 
 ```
-$ ik doc sign hello1.ikdoc hello1.txt
-$ ik doc sign hello2.ikdoc hello2.txt --parent hello1.ikdoc
-$ ik doc verify hello1.ikdoc --identity $(ik id)
-$ ik doc verify hello2.ikdoc --parent hello1.ikdoc
+$ ik doc sign genesis.ikdoc
+$ ik doc sign hello.ikdoc hello.txt --parent genesis.ikdoc
+$ ik doc verify genesis.ikdoc --identity $(ik id)
+$ ik doc verify hello.ikdoc --parent genesis.ikdoc
+```
+
+### semi-encryption
+
+the chain can be used as an HKDF ratchet. A document can only be read
+if the recipient can obtain __all__ previous messages without missing any.
+Obtaining an older message does not reveal the key of future messages.
+Ideally you would treat the genesis document like a preshared secret,
+and distribute future documents through multiple channels.
 
 ```
+$ ik doc sign genesis.ikdoc --rekey
+$ ik doc sign hello.ikdoc -M hello=world --parent genesis.ikdoc
+
+$ ik doc verify genesis.ikdoc --identity $(ik id)
+$ ik doc verify hello.ikdoc --parent genesis.ikdoc
+```
+
 
 ### using identity as x509 CA
 
@@ -126,4 +142,15 @@ etcd \
 
 etcdctl member list  --cert=client.pem --key=client.pem --cacert=ca.pem
 ```
+
+
+### ikdoc layout
+
+- foo.ikdoc         the document
+- foo.iksecret      the current ratchet prk
+- .ikchain          previous documents
+    - (sha)         previous document
+    - (sha).next    sha of the follow up document
+
+
 

@@ -9,7 +9,6 @@ import (
     "os"
     "io/ioutil"
     "github.com/fatih/color"
-    "bytes"
     "path/filepath"
     "strings"
     "crypto/sha256"
@@ -29,12 +28,25 @@ func docCmd() *cobra.Command {
         Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
-            f, err := os.Open(args[0])
+            f, err := ioutil.ReadFile(args[0])
             if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
-            defer f.Close();
 
-            _ , err = ikdoc.ReadDocument(f, ikdoc.DocumentOptDump{Writer: os.Stdout})
-            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+            if !strings.HasSuffix(args[0], ".ikdoc") {
+                args[0] += ".ikdoc"
+            }
+            fn := args[0][:len(args[0])-len(".ikdoc")] + ".iksecret"
+            b, err := ioutil.ReadFile(fn)
+            if err == nil {
+                sealkey, _ , err := ikdoc.ResumeRatchetFromString(string(b))
+                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                _ , err = ikdoc.ParseDocument(f, ikdoc.OptUnsealKey(sealkey), ikdoc.OptDump{Writer: os.Stdout})
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            } else {
+                _ , err = ikdoc.ParseDocument(f, ikdoc.OptDump{Writer: os.Stdout})
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            }
+
         },
     })
 
@@ -55,11 +67,15 @@ func docCmd() *cobra.Command {
 
     var argAnon     bool
     var argChain    bool
-    var argDetached []string
+    var argRekey    bool
+    var argAttached = make(map[string]string)
+    var argPlain    = make(map[string]string)
+    var argUnnamed  []string
     var argParent   string
-    var argOutfile  string
+    var argUrl      []string
+    var argSeal     string
     signCmd := &cobra.Command{
-        Use:        "sign <outfile> [<filename>  ...] --detached <filename>  [<filename> ...]",
+        Use:        "sign <outfile> [<filename>  ...] -m hello=world  [<detached filename> ...]",
         Short:      "sign files and pack into a <filename>.ikdoc",
         Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
@@ -72,29 +88,49 @@ func docCmd() *cobra.Command {
 
             doc := &ikdoc.Document {}
 
+
             var parentbytes []byte
             if argParent != "" {
                 parentbytes, err = ioutil.ReadFile(argParent)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
-                parent, err := ikdoc.ReadDocument(bytes.NewReader(parentbytes))
+                parent, err := ikdoc.ParseDocument(parentbytes)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
                 doc = parent.NewSequence();
             }
-            for _, n := range args[1:] {
-                if argOutfile == "" {
-                    argOutfile = n + ".ikdoc"
+
+            var sealkey, chainkey, ratchetkey identity.Secret
+            var hasRatchet = false
+
+            if len(argAttached) > 0 {
+                if len(parentbytes) == 0  {
+                    panic("attempting to seal document without a parent");
                 }
-                b, err := ioutil.ReadFile(n)
-                if err != nil { panic(err) }
-                err = doc.WithAttached(b, filepath.Base(n))
+                if doc.Serial > 2 {
+                    fn := argParent[:len(argParent)-len(".ikdoc")] + ".iksecret"
+                    b , err := ioutil.ReadFile(fn)
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                    _, chainkey , err = ikdoc.ResumeRatchetFromString(string(b))
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                }
+
+                sealkey, _ , ratchetkey = ikdoc.Ratchet(parentbytes, chainkey[:])
+                hasRatchet = true
+                doc.Sealed = ikdoc.NewSealedDocument(sealkey[:])
+
+                for k,v := range argAttached{
+                    err = doc.Sealed.WithAttached([]byte(v), k)
+                    if err != nil { panic(err) }
+                }
+            }
+
+            for k,v := range argPlain{
+                err = doc.WithAttached([]byte(v), k)
                 if err != nil { panic(err) }
             }
-            for _, n := range argDetached {
-                if argOutfile == "" {
-                    argOutfile = n + ".ikdoc"
-                }
+
+            for _,n := range args[1:] {
                 f, err := os.Open(n)
                 if err != nil { panic(err) }
                 defer f.Close();
@@ -102,12 +138,24 @@ func docCmd() *cobra.Command {
                 err = doc.WithDetached(f, filepath.Base(n))
                 if err != nil { panic(err) }
             }
+            for _, n := range argUnnamed {
+                f, err := os.Open(n)
+                if err != nil { panic(err) }
+                defer f.Close();
+
+                err = doc.WithDetached(f, "")
+                if err != nil { panic(err) }
+            }
+            for _,v := range argUrl {
+                err = doc.WithBaseUrl(v)
+                if err != nil { panic(err) }
+            }
 
             if !argAnon {
                 doc.Anchors = []identity.Identity{*id}
             }
 
-            if !strings.Contains(args[0], ".") {
+            if !strings.HasSuffix(args[0], ".ikdoc") {
                 args[0] += ".ikdoc"
             }
 
@@ -158,12 +206,22 @@ func docCmd() *cobra.Command {
             _, err = f.Write(b)
             if err != nil { panic(err) }
 
+            if hasRatchet {
+                fn := args[0][:len(args[0])-len(".ikdoc")] + ".iksecret"
+                err = ioutil.WriteFile(fn, []byte(ratchetkey.ToString()), 0644)
+                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+            }
         },
     }
-    signCmd.Flags().StringArrayVarP(&argDetached,   "detached", "d",  []string{}, "do not embedd the document")
-    signCmd.Flags().BoolVarP(&argAnon,              "anon",     "n",  false, "do not reveal signee (also prevents sequencing)")
+    signCmd.Flags().StringToStringVarP(&argPlain,   "cleartext","M",  map[string]string{}, "attach a cleartext signed key value message")
+    signCmd.Flags().StringToStringVarP(&argAttached,"message",  "m",  map[string]string{}, "attach a sealed signed key value message")
+    signCmd.Flags().StringArrayVarP(&argUnnamed,    "unnamed",  "D",  []string{}, "do not embedd or name the document")
+    signCmd.Flags().BoolVarP(&argAnon,              "anon",     "a",  false, "do not reveal signee (also prevents sequencing)")
     signCmd.Flags().StringVarP(&argParent,          "parent",   "p",  "", "document follows a previous document in a sequence")
+    signCmd.Flags().StringArrayVarP(&argUrl,        "base",     "b",  []string{}, "ikd sync base url")
     signCmd.Flags().BoolVarP(&argChain,             "chain",    "c",  false, "record history in .ikchain for sync")
+    signCmd.Flags().BoolVarP(&argRekey,             "rekey",    "k",  false, "mix secret encryption key for next message")
+    signCmd.Flags().StringVarP(&argSeal,            "seal",     "s",  "", "seal for recipient")
     rootCmd.AddCommand(signCmd);
 
 
@@ -177,17 +235,17 @@ func docCmd() *cobra.Command {
             var doc *ikdoc.Document
 
             if argParent != "" {
-                f, err := os.Open(argParent)
-                if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
-                defer f.Close();
 
-                precedent, err := ikdoc.ReadDocument(f)
+                f, err := ioutil.ReadFile(argParent)
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+                precedent, err := ikdoc.ParseDocument(f)
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
                 b, err := ioutil.ReadFile(args[0])
                 if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-                doc, err = precedent.VerifySuccessor(b, ikdoc.DocumentOptDump{Writer: os.Stdout})
+                doc, err = precedent.VerifySuccessor(b, ikdoc.OptDump{Writer: os.Stdout})
                 if err != nil {
                     fmt.Printf("%s : %v\n", args[0], err);
                     os.Exit(2)
@@ -201,7 +259,7 @@ func docCmd() *cobra.Command {
                 b, err := ioutil.ReadFile(args[0])
                 if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-                doc, err = ikdoc.ReadDocument(bytes.NewReader(b))
+                doc, err = ikdoc.ParseDocument(b)
                 if err != nil { panic(err) }
 
                 err = doc.Verify()
@@ -227,7 +285,7 @@ func docCmd() *cobra.Command {
             }
 
 
-            err := doc.VerifyDetached(filepath.Dir(args[0]), true, ikdoc.DocumentOptDump{Writer: os.Stdout})
+            err := doc.VerifyDetached(filepath.Dir(args[0]), true, ikdoc.OptDump{Writer: os.Stdout})
             if err != nil {
                 panic(err)
             }

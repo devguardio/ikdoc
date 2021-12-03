@@ -8,7 +8,6 @@ import (
     "fmt"
     "os"
     "io/ioutil"
-    "bytes"
     "crypto/sha256"
     "path/filepath"
     "github.com/fatih/color"
@@ -27,7 +26,7 @@ func Sync(document string, url string) (bool, error) {
         docbytes, err := ioutil.ReadFile(document)
         if err != nil { return hasupdatedsomething, fmt.Errorf("%s : %w", document, err) }
 
-        parent, err := ReadDocument(bytes.NewReader(docbytes))
+        parent, err := ParseDocument(docbytes)
         if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %w", document, err)) }
 
         parenthash := sha256.Sum256(docbytes);
@@ -78,7 +77,7 @@ func Sync(document string, url string) (bool, error) {
                 }
             }
 
-            err = parent.VerifyDetached(filepath.Dir(document), true, DocumentOptDump{Writer: os.Stdout})
+            err = parent.VerifyDetached(filepath.Dir(document), true, OptDump{Writer: os.Stdout})
             if err != nil { return hasupdatedsomething, err }
             return hasupdatedsomething, nil
         }
@@ -97,7 +96,7 @@ func Sync(document string, url string) (bool, error) {
             return hasupdatedsomething, (fmt.Errorf("%s : %w", fn, err))
         }
 
-        _ , err = parent.VerifySuccessor(nextbytes, DocumentOptDump{Writer: os.Stdout})
+        _ , err = parent.VerifySuccessor(nextbytes, OptDump{Writer: os.Stdout})
         if err != nil {
             return hasupdatedsomething, err
         }
