@@ -1,13 +1,13 @@
-package doc
+package ikdoc
 
 
 import (
     "github.com/devguardio/identity/go"
     "golang.org/x/crypto/hkdf"
     "crypto/sha256"
-    "crypto/rand"
     "io"
     "golang.org/x/crypto/chacha20poly1305"
+    "encoding/binary"
     "fmt"
 )
 
@@ -42,34 +42,36 @@ func ResumeRatchetFromString(secret string) (sk identity.Secret, ck identity.Sec
 
 func Seal(key []byte, serial uint64, msg []byte) ([]byte, error) {
 
+    if serial == 0 {
+        serial = 1
+    }
+
     var nonce [12]byte
     binary.BigEndian.PutUint64(nonce[4:], serial)
 
     aead, err := chacha20poly1305.New(key[:])
     if err != nil { return nil, err }
 
-    nonce := make([]byte, aead.NonceSize(), aead.NonceSize()+len(msg)+aead.Overhead())
-    _, err = rand.Read(nonce[:])
-    if err != nil { return nil, err }
-
-    return aead.Seal(nonce, nonce, msg, nil), nil
+    return aead.Seal(nil, nonce[:], msg, nil), nil
 }
 
 func Unseal(key []byte, serial uint64, msg []byte) ([]byte, error) {
 
+    if serial == 0 {
+        serial = 1
+    }
+
     var nonce [12]byte
     binary.BigEndian.PutUint64(nonce[4:], serial)
 
     aead, err := chacha20poly1305.New(key[:])
     if err != nil { return nil, err }
 
-    if len(msg) < aead.NonceSize() {
+    if len(msg) < aead.Overhead() {
         return nil, fmt.Errorf("ciphertext too short")
 	}
 
-    nonce, ciphertext := msg[:aead.NonceSize()], msg[aead.NonceSize():]
-
-    return aead.Open(nil, nonce, ciphertext, nil)
+    return aead.Open(nil, nonce[:], msg , nil)
 }
 
 /*

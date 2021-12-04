@@ -1,4 +1,4 @@
-package doc
+package ikdoc
 
 import (
     "net/http"

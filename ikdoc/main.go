@@ -3,7 +3,7 @@ package main
 import (
     "github.com/spf13/cobra"
     "github.com/devguardio/identity/go"
-    ikdoc "github.com/devguardio/identity/go/doc"
+    "github.com/devguardio/ikdoc"
     "log"
     "fmt"
     "os"
@@ -14,13 +14,15 @@ import (
     "crypto/sha256"
 )
 
-func docCmd() *cobra.Command {
+func main() {
     log.SetFlags(log.Lshortfile);
 
+    var domain = ""
     var rootCmd = &cobra.Command{
         Use:        "doc",
         Short:      "signed documents",
     }
+    rootCmd.PersistentFlags().StringVarP(&domain, "domain", "u", "", "use vault in separate user specific domain")
 
     rootCmd.AddCommand(&cobra.Command{
         Use:        "dump <filename>",
@@ -296,7 +298,9 @@ func docCmd() *cobra.Command {
     verifyCmd.Flags().StringVarP(&argParent,    "parent", "p",  "", "verify document is signed in sequence to another document")
     rootCmd.AddCommand(verifyCmd);
 
-    return rootCmd
+    if err := rootCmd.Execute(); err != nil {
+        os.Exit(1);
+    }
 }
 
 

@@ -1,4 +1,4 @@
-package doc
+package ikdoc
 
 import (
     "github.com/devguardio/identity/go"
@@ -244,7 +244,7 @@ func (self *Document) decodeContent(rr []byte, opts ... interface{}) error {
 
             if unsealkey != nil {
 
-                vb, err = Unseal(unsealkey[:], vb)
+                vb, err = Unseal(unsealkey[:], uint64(self.Serial), vb)
                 if err != nil { return err }
 
                 err = self.decodeContent(vb, append(opts, OptDumpPrintf(
@@ -454,7 +454,7 @@ func (self *Document) encodeContent(w io.Writer) (error) {
         if err != nil { return err }
         var vb = w2.Bytes()
 
-        vb, err = Seal(self.Sealed.key, vb)
+        vb, err = Seal(self.Sealed.key, uint64(self.Serial), vb)
         if err != nil { return err }
 
         n := binary.PutUvarint(uvbuf[:], uint64(len(vb)))
