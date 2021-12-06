@@ -29,7 +29,7 @@ BAD
 ```
 
 
-### sequential anchors and multisig
+### sequential anchors with multisig
 
 identitykit generalizes the devguard sequencer into an arbitrary trust anchor.
 Signatures carry information about the signee itself in the anchor section.
@@ -43,17 +43,17 @@ $ ikdoc verify genesis.ikdoc --identity $(ik id)
 $ ikdoc verify hello.ikdoc --parent genesis.ikdoc
 ```
 
-### semi-encryption
+### encryption ratchet
 
 the chain can be used as an HKDF ratchet. A document can only be read
-if the recipient can obtain __all__ previous messages without missing any.
+if the recipient can obtain _all_  previous messages without missing any.
 Obtaining an older message does not reveal the key of future messages.
 Ideally you would treat the genesis document like a preshared secret,
 and distribute future documents through multiple channels.
 
 ```
-$ ikdoc sign genesis.ikdoc --rekey
-$ ikdoc sign hello.ikdoc -M hello=world --parent genesis.ikdoc
+$ ikdoc sign genesis.ikdoc
+$ ikdoc sign hello.ikdoc -m hello=world --parent genesis.ikdoc
 
 $ ikdoc verify genesis.ikdoc --identity $(ik id)
 $ ikdoc verify hello.ikdoc --parent genesis.ikdoc

@@ -12,6 +12,7 @@ import (
     "path/filepath"
     "strings"
     "crypto/sha256"
+    "crypto/rand"
 )
 
 func main() {
@@ -100,16 +101,21 @@ func main() {
                 if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
                 doc = parent.NewSequence();
+            } else {
+                doc.Salt = make([]byte, 8)
+                _, err := rand.Read(doc.Salt)
+                if err != nil { panic(err) }
             }
+
 
             var sealkey, chainkey, ratchetkey identity.Secret
             var hasRatchet = false
 
             if len(argAttached) > 0 {
                 if len(parentbytes) == 0  {
-                    panic("attempting to seal document without a parent");
-                }
-                if doc.Serial > 2 {
+                    _, err := rand.Read(chainkey[:])
+                    if err != nil { panic(err) }
+                } else {
                     fn := argParent[:len(argParent)-len(".ikdoc")] + ".iksecret"
                     b , err := ioutil.ReadFile(fn)
                     if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }

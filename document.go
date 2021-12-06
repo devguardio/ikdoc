@@ -13,7 +13,6 @@ import (
     "path/filepath"
     "os"
     "bufio"
-    "crypto/rand"
 )
 
 
@@ -371,14 +370,8 @@ func (self *Document) encodeContent(w io.Writer) (error) {
         _,err = w.Write(self.Precedent[:])
         if err != nil { return err }
 
-    } else if len(self.Salt) == 0 {
-
-        // at least write a salt to avoid a predictable doc being used as genesis for HKDF
-        self.Salt = make([]byte, 8)
-        _, err := rand.Read(self.Salt)
-        if err != nil { return err }
-
     }
+
     if self.Quorum > 1 {
         w.Write([]byte{DocumentFieldQuorum})
         n := binary.PutUvarint(uvbuf[:], uint64(self.Quorum))
