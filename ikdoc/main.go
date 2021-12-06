@@ -118,15 +118,16 @@ func main() {
         Args:   cobra.MinimumNArgs(2),
         Run: func(cmd *cobra.Command, args []string) {
 
-            var ctx = context.Background()
+            var ctx   = context.Background()
+            var vault = identity.Vault()
 
             var url = "";
             if len(args) > 1 { url = args[1] }
 
             if argWatch {
-                 ikdoc.Wait(ctx, args[0], url)
+                 ikdoc.Wait(ctx, vault, args[0], url)
             } else {
-                _ ,err := ikdoc.Sync(ctx, args[0], url, argWatch)
+                _ ,err := ikdoc.Sync(ctx, vault, args[0], url, argWatch)
                 if err != nil { panic(err) }
             }
         },
