@@ -44,6 +44,10 @@ func Wait (ctx context.Context, document string, url string) {
 
 func Sync(ctx context.Context, document string, url string, watch bool) (bool, error) {
 
+    if !strings.HasSuffix(url, "/") {
+        url += "/"
+    }
+
     var hasupdatedsomething = false
 
     for ;; {
@@ -63,7 +67,7 @@ func Sync(ctx context.Context, document string, url string, watch bool) (bool, e
         nexthash, err := ioutil.ReadFile(fn)
         if err != nil || len(nexthash) == 0 {
             if url != ""  {
-                nurl := url + "/.ikchain/" + fmt.Sprintf("%x.next", parenthash)
+                nurl := url + ".ikchain/" + fmt.Sprintf("%x.next", parenthash)
                 fmt.Println("☎ remote", nurl)
                 nexthash, err = httpdownload(ctx, nurl, watch && !hasupdatedsomething)
                 if err != nil { return hasupdatedsomething,(fmt.Errorf("%s : %v\n", nurl , err)) }
@@ -109,7 +113,7 @@ func Sync(ctx context.Context, document string, url string, watch bool) (bool, e
         log.Println("next is", fn);
         nextbytes, err := ioutil.ReadFile(fn)
         if err != nil && url != "" {
-            nextbytes, err = httpdownload(ctx, url + "/.ikchain/" + strings.TrimSpace(string(nexthash)), false)
+            nextbytes, err = httpdownload(ctx, url + ".ikchain/" + strings.TrimSpace(string(nexthash)), false)
             if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
         }
         if err != nil {
