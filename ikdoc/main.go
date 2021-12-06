@@ -62,7 +62,51 @@ func main() {
                 _ , err = ikdoc.ParseDocument(f, ikdoc.OptDump{Writer: os.Stdout})
                 if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
             }
+        },
+    })
 
+    rootCmd.AddCommand(&cobra.Command{
+        Use:        "cat <filename> <key>",
+        Short:      "dump ikdoc attachment for key",
+        Args:       cobra.MinimumNArgs(2),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            f, err := ioutil.ReadFile(args[0])
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+            if !strings.HasSuffix(args[0], ".ikdoc") {
+                args[0] += ".ikdoc"
+            }
+            fn := args[0][:len(args[0])-len(".ikdoc")] + ".iksecret"
+            b, err := ioutil.ReadFile(fn)
+
+            var doc *ikdoc.Document
+            if err == nil {
+                sealkey, _ , err := ikdoc.ResumeRatchetFromString(string(b))
+                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                doc , err = ikdoc.ParseDocument(f, ikdoc.OptUnsealKey(sealkey))
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            } else {
+                doc , err = ikdoc.ParseDocument(f, ikdoc.OptDump{Writer: os.Stdout})
+                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            }
+
+            for _, v := range doc.Attached {
+                if v.Name == args[1] {
+                    os.Stdout.Write(v.Message);
+                    return
+                }
+            }
+
+            if doc.Sealed != nil {
+                for _, v := range doc.Sealed.Attached {
+                    if v.Name == args[1] {
+                        os.Stdout.Write(v.Message);
+                        return
+                    }
+                }
+            }
+            os.Exit(1)
         },
     })
 
@@ -101,14 +145,20 @@ func main() {
     var argAnon     bool
     var argChain    bool
     var argRekey    bool
+
     var argAttached = make(map[string]string)
     var argPlain    = make(map[string]string)
+
+    var argEmbed = make(map[string]string)
+    var argSeal  = make(map[string]string)
+
     var argUnnamed  []string
+    var argDetached = make(map[string]string)
+
     var argParent   string
     var argUrl      []string
-    var argSeal     string
     signCmd := &cobra.Command{
-        Use:        "sign <outfile> [<filename>  ...] -m hello=world  [<detached filename> ...]",
+        Use:        "sign <outfile> [<filename>  ...] -m hello=world -e file.txt",
         Short:      "sign files and pack into a <filename>.ikdoc",
         Args:       cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
@@ -141,7 +191,7 @@ func main() {
             var sealkey, chainkey, ratchetkey identity.Secret
             var hasRatchet = false
 
-            if len(argAttached) > 0 {
+            if len(argAttached) > 0 || len(argSeal) > 0 {
                 if len(parentbytes) == 0  {
                     _, err := rand.Read(chainkey[:])
                     if err != nil { panic(err) }
@@ -161,6 +211,13 @@ func main() {
                     err = doc.Sealed.WithAttached([]byte(v), k)
                     if err != nil { panic(err) }
                 }
+                for k,v := range argSeal {
+                    v, err := os.ReadFile(v)
+                    if err != nil { panic(err) }
+
+                    err = doc.Sealed.WithAttached(v, k)
+                    if err != nil { panic(err) }
+                }
             }
 
             for k,v := range argPlain{
@@ -168,12 +225,20 @@ func main() {
                 if err != nil { panic(err) }
             }
 
-            for _,n := range args[1:] {
-                f, err := os.Open(n)
+            for k,v := range argEmbed {
+                v, err := os.ReadFile(v)
+                if err != nil { panic(err) }
+
+                err = doc.WithAttached(v, k)
+                if err != nil { panic(err) }
+            }
+
+            for k,v := range argDetached {
+                f, err := os.Open(v)
                 if err != nil { panic(err) }
                 defer f.Close();
 
-                err = doc.WithDetached(f, filepath.Base(n))
+                err = doc.WithDetached(f, k)
                 if err != nil { panic(err) }
             }
             for _, n := range argUnnamed {
@@ -184,6 +249,7 @@ func main() {
                 err = doc.WithDetached(f, "")
                 if err != nil { panic(err) }
             }
+
             for _,v := range argUrl {
                 err = doc.WithBaseUrl(v)
                 if err != nil { panic(err) }
@@ -253,13 +319,18 @@ func main() {
     }
     signCmd.Flags().StringToStringVarP(&argPlain,   "cleartext","M",  map[string]string{}, "attach a cleartext signed key value message")
     signCmd.Flags().StringToStringVarP(&argAttached,"message",  "m",  map[string]string{}, "attach a sealed signed key value message")
-    signCmd.Flags().StringArrayVarP(&argUnnamed,    "unnamed",  "D",  []string{}, "do not embedd or name the document")
+
+    signCmd.Flags().StringToStringVarP(&argEmbed,   "embed",    "E",  map[string]string{}, "embed a cleartext signed file")
+    signCmd.Flags().StringToStringVarP(&argSeal,    "seal",     "e",  map[string]string{}, "embed a sealed signed file")
+
+    signCmd.Flags().StringToStringVarP(&argDetached,"detached", "d",  map[string]string{}, "reference detached file")
+    signCmd.Flags().StringArrayVarP(&argUnnamed,    "unnamed",  "D",  []string{}, "reference unnamed detached file")
+
     signCmd.Flags().BoolVarP(&argAnon,              "anon",     "a",  false, "do not reveal signee (also prevents sequencing)")
     signCmd.Flags().StringVarP(&argParent,          "parent",   "p",  "", "document follows a previous document in a sequence")
     signCmd.Flags().StringArrayVarP(&argUrl,        "base",     "b",  []string{}, "ikd sync base url")
     signCmd.Flags().BoolVarP(&argChain,             "chain",    "c",  false, "record history in .ikchain for sync")
     signCmd.Flags().BoolVarP(&argRekey,             "rekey",    "k",  false, "mix secret encryption key for next message")
-    signCmd.Flags().StringVarP(&argSeal,            "seal",     "s",  "", "seal for recipient")
     rootCmd.AddCommand(signCmd);
 
 
