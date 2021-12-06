@@ -241,12 +241,14 @@ func (self *Document) decodeContent(rr []byte, opts ... interface{}) error {
             _, err = io.ReadFull(r, vb)
             if err != nil { return fmt.Errorf("reading sealed field: %w",  err) }
 
+            self.Sealed = &Document{}
+
             if unsealkey != nil {
 
                 vb, err = Unseal(unsealkey[:], uint64(self.Serial), vb)
                 if err != nil { return err }
 
-                err = self.decodeContent(vb, append(opts, OptDumpPrintf(
+                err = self.Sealed.decodeContent(vb, append(opts, OptDumpPrintf(
                     func (w io.Writer, format string, a ...interface{}) (int, error) {
                         fprintf(w, "  sealed " + format, a...);
                         return 0, nil

@@ -65,12 +65,8 @@ func Sync(ctx context.Context, document string, url string, watch bool) (bool, e
             if url != ""  {
                 nurl := url + "/.ikchain/" + fmt.Sprintf("%x.next", parenthash)
                 fmt.Println("☎ remote", nurl)
-                nexthash, err = httpdownload(ctx, nurl, watch)
+                nexthash, err = httpdownload(ctx, nurl, watch && !hasupdatedsomething)
                 if err != nil { return hasupdatedsomething,(fmt.Errorf("%s : %v\n", nurl , err)) }
-                if len(nexthash) != 0 {
-                    err = ioutil.WriteFile(fn, nexthash, 0644)
-                    if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
-                }
             }
         }
 
@@ -108,15 +104,13 @@ func Sync(ctx context.Context, document string, url string, watch bool) (bool, e
             return hasupdatedsomething, nil
         }
 
+
         fn = filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
+        log.Println("next is", fn);
         nextbytes, err := ioutil.ReadFile(fn)
         if err != nil && url != "" {
             nextbytes, err = httpdownload(ctx, url + "/.ikchain/" + strings.TrimSpace(string(nexthash)), false)
             if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
-            if len(nexthash) != 0 {
-                err = ioutil.WriteFile(fn, nextbytes, 0644)
-                if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
-            }
         }
         if err != nil {
             return hasupdatedsomething, (fmt.Errorf("%s : %w", fn, err))
@@ -126,11 +120,6 @@ func Sync(ctx context.Context, document string, url string, watch bool) (bool, e
         if err != nil {
             return hasupdatedsomething, err
         }
-
-        err = ioutil.WriteFile(document, nextbytes, 0644);
-        if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %w", document, err))}
-
-
 
 
         fn = RelatedFilePath(document, ".iksecret")
@@ -142,6 +131,25 @@ func Sync(ctx context.Context, document string, url string, watch bool) (bool, e
             err = ioutil.WriteFile(fn, []byte(ratchetkey.ToString()), 0644)
             if err != nil { return hasupdatedsomething, fmt.Errorf("%s : %w", fn, err) }
         }
+
+        // update local .ikchain
+
+        if len(nextbytes) != 0 {
+            fn := filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash))
+            err = ioutil.WriteFile(fn, nextbytes, 0644)
+            if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
+        }
+
+        if len(nexthash) != 0 {
+            fn := filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash))
+            err = ioutil.WriteFile(fn, nexthash, 0644)
+            if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
+        }
+
+        // finally update the document
+
+        err = ioutil.WriteFile(document, nextbytes, 0644);
+        if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %w", document, err))}
 
         hasupdatedsomething = true
 

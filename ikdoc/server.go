@@ -32,29 +32,30 @@ func servefile(f *os.File, w http.ResponseWriter, r *http.Request) {
     io.CopyN(w, f, d.Size())
 }
 
+
+
+func wait(ikchaindir string) {
+    watcher, err := fsnotify.NewWatcher()
+    if err != nil { panic(err) }
+    defer watcher.Close()
+
+    err = watcher.Add(ikchaindir)
+    if err != nil { panic(err ) }
+
+    select {
+    case <- watcher.Events:
+    case err, _ := <- watcher.Errors:
+        log.Println(err)
+    }
+}
+
 func server(ikchaindir string) http.Handler {
 
 
     notify := make(chan struct{})
     go func() {
-
-        watcher, err := fsnotify.NewWatcher()
-        if err != nil { panic(err) }
-        defer watcher.Close()
-
-        err = watcher.Add(ikchaindir)
-        if err != nil { panic(err ) }
-
         for ;;{
-            select {
-                case ev, _ := <- watcher.Events:
-                    if ev.Op == fsnotify.Remove {
-                        panic("ikchaindir was removed");
-                    }
-                case err, _ := <- watcher.Errors:
-                    panic(err)
-
-            }
+            wait(ikchaindir)
             close(notify)
             notify = make(chan struct{})
         }
