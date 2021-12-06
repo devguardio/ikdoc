@@ -15,10 +15,34 @@ import (
     "crypto/subtle"
     "time"
     badrand "math/rand"
+    "log"
+    "context"
 )
 
 
-func Sync(document string, url string, watch bool) (bool, error) {
+func Wait (ctx context.Context, document string, url string) {
+
+    for ;; {
+        change, err := Sync(ctx, document, url, true)
+        if err != nil {
+            log.Println(err)
+        }
+
+        if change {
+            return
+        }
+
+        select {
+        case <-ctx.Done():
+            return
+        case <- time.After(5 * time.Second):
+            continue
+        }
+    }
+
+}
+
+func Sync(ctx context.Context, document string, url string, watch bool) (bool, error) {
 
     var hasupdatedsomething = false
 
@@ -40,7 +64,8 @@ func Sync(document string, url string, watch bool) (bool, error) {
         if err != nil || len(nexthash) == 0 {
             if url != ""  {
                 nurl := url + "/.ikchain/" + fmt.Sprintf("%x.next", parenthash)
-                nexthash, err = httpdownload(nurl, watch)
+                fmt.Println("☎ remote", nurl)
+                nexthash, err = httpdownload(ctx, nurl, watch)
                 if err != nil { return hasupdatedsomething,(fmt.Errorf("%s : %v\n", nurl , err)) }
                 if len(nexthash) != 0 {
                     err = ioutil.WriteFile(fn, nexthash, 0644)
@@ -61,7 +86,7 @@ func Sync(document string, url string, watch bool) (bool, error) {
                     }
                     fn := filepath.Join(filepath.Dir(document), v.Name)
                     nurl := url + v.Name
-                    nb , err := httpdownload(nurl, false)
+                    nb , err := httpdownload(ctx, nurl, false)
                     if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", nurl, err)) }
 
                     h := sha256.New()
@@ -86,7 +111,7 @@ func Sync(document string, url string, watch bool) (bool, error) {
         fn = filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
         nextbytes, err := ioutil.ReadFile(fn)
         if err != nil && url != "" {
-            nextbytes, err = httpdownload(url + "/.ikchain/" + strings.TrimSpace(string(nexthash)), false)
+            nextbytes, err = httpdownload(ctx, url + "/.ikchain/" + strings.TrimSpace(string(nexthash)), false)
             if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
             if len(nexthash) != 0 {
                 err = ioutil.WriteFile(fn, nextbytes, 0644)
@@ -124,7 +149,7 @@ func Sync(document string, url string, watch bool) (bool, error) {
     }
 }
 
-func httpdownload(url string, watch bool) ([]byte, error) {
+func httpdownload(ctx context.Context, url string, watch bool) ([]byte, error) {
 
     vault := identity.Vault()
     tls, err := iktls.NewTlsClient(vault)
@@ -141,10 +166,12 @@ func httpdownload(url string, watch bool) ([]byte, error) {
     }
 
 
-    req, err := http.NewRequest("GET", url, nil)
+    req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
     if err != nil { return nil, err }
 
-    req.Header.Add("Wait", client.Timeout.String());
+    if watch {
+        req.Header.Add("Wait", client.Timeout.String());
+    }
 
     resp, err := client.Do(req)
     if err != nil { return nil, err }

@@ -15,6 +15,7 @@ import (
     "crypto/rand"
     "time"
     badrand "math/rand"
+    "context"
 )
 
 func main() {
@@ -117,24 +118,16 @@ func main() {
         Args:   cobra.MinimumNArgs(2),
         Run: func(cmd *cobra.Command, args []string) {
 
+            var ctx = context.Background()
+
             var url = "";
             if len(args) > 1 { url = args[1] }
 
-            for ;; {
-                _ ,err := ikdoc.Sync(args[0], url, argWatch)
-                if err != nil {
-                    if argWatch {
-                        log.Println(err);
-                        time.Sleep(5 * time.Second)
-                        continue
-                    }
-                    panic(err)
-                }
-
-                if !argWatch{
-                    break
-                }
-
+            if argWatch {
+                 ikdoc.Wait(ctx, args[0], url)
+            } else {
+                _ ,err := ikdoc.Sync(ctx, args[0], url, argWatch)
+                if err != nil { panic(err) }
             }
         },
     }
