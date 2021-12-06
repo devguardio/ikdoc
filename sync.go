@@ -14,10 +14,11 @@ import (
     "strings"
     "crypto/subtle"
     "time"
+    badrand "math/rand"
 )
 
 
-func Sync(document string, url string) (bool, error) {
+func Sync(document string, url string, watch bool) (bool, error) {
 
     var hasupdatedsomething = false
 
@@ -39,7 +40,7 @@ func Sync(document string, url string) (bool, error) {
         if err != nil || len(nexthash) == 0 {
             if url != ""  {
                 nurl := url + "/.ikchain/" + fmt.Sprintf("%x.next", parenthash)
-                nexthash, err = httpdownload(nurl)
+                nexthash, err = httpdownload(nurl, watch)
                 if err != nil { return hasupdatedsomething,(fmt.Errorf("%s : %v\n", nurl , err)) }
                 if len(nexthash) != 0 {
                     err = ioutil.WriteFile(fn, nexthash, 0644)
@@ -60,7 +61,7 @@ func Sync(document string, url string) (bool, error) {
                     }
                     fn := filepath.Join(filepath.Dir(document), v.Name)
                     nurl := url + v.Name
-                    nb , err := httpdownload(nurl)
+                    nb , err := httpdownload(nurl, false)
                     if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", nurl, err)) }
 
                     h := sha256.New()
@@ -85,7 +86,7 @@ func Sync(document string, url string) (bool, error) {
         fn = filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
         nextbytes, err := ioutil.ReadFile(fn)
         if err != nil && url != "" {
-            nextbytes, err = httpdownload(url + "/.ikchain/" + strings.TrimSpace(string(nexthash)))
+            nextbytes, err = httpdownload(url + "/.ikchain/" + strings.TrimSpace(string(nexthash)), false)
             if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
             if len(nexthash) != 0 {
                 err = ioutil.WriteFile(fn, nextbytes, 0644)
@@ -104,11 +105,26 @@ func Sync(document string, url string) (bool, error) {
         err = ioutil.WriteFile(document, nextbytes, 0644);
         if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %w", document, err))}
 
+
+
+
+        fn = RelatedFilePath(document, ".iksecret")
+        b , err := ioutil.ReadFile(fn)
+        if err == nil {
+            _, chainkey , err := ResumeRatchetFromString(string(b))
+            if err != nil { return hasupdatedsomething, fmt.Errorf("%s : %w", fn, err) }
+            _ , _ , ratchetkey := Ratchet(docbytes, chainkey[:])
+            err = ioutil.WriteFile(fn, []byte(ratchetkey.ToString()), 0644)
+            if err != nil { return hasupdatedsomething, fmt.Errorf("%s : %w", fn, err) }
+        }
+
         hasupdatedsomething = true
+
+        fmt.Printf("%s %s\n", color.GreenString("✔ update"), nexthash)
     }
 }
 
-func httpdownload(url string) ([]byte, error) {
+func httpdownload(url string, watch bool) ([]byte, error) {
 
     vault := identity.Vault()
     tls, err := iktls.NewTlsClient(vault)
@@ -118,11 +134,17 @@ func httpdownload(url string) ([]byte, error) {
     tls.InsecureSkipVerify = true
 
     client := &http.Client{Transport: &http.Transport{ TLSClientConfig: tls }}
-    client.Timeout = time.Minute
+    if watch {
+        client.Timeout = 10 * time.Minute + (time.Second * time.Duration(badrand.Intn(10)))
+    } else {
+        client.Timeout = time.Minute
+    }
 
 
     req, err := http.NewRequest("GET", url, nil)
     if err != nil { return nil, err }
+
+    req.Header.Add("Wait", client.Timeout.String());
 
     resp, err := client.Do(req)
     if err != nil { return nil, err }

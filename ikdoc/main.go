@@ -13,10 +13,14 @@ import (
     "strings"
     "crypto/sha256"
     "crypto/rand"
+    "time"
+    badrand "math/rand"
 )
 
 func main() {
     log.SetFlags(log.Lshortfile);
+    badrand.Seed(time.Now().UnixNano())
+
 
     var domain = ""
     var rootCmd = &cobra.Command{
@@ -24,6 +28,15 @@ func main() {
         Short:      "signed documents",
     }
     rootCmd.PersistentFlags().StringVarP(&domain, "domain", "u", "", "use vault in separate user specific domain")
+
+    rootCmd.AddCommand(&cobra.Command{
+        Use:        "serve [path/to/.ikchain]",
+        Short:      "serve ikchain over http",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            Serve(args[0])
+        },
+    })
 
     rootCmd.AddCommand(&cobra.Command{
         Use:        "dump <filename>",
@@ -53,18 +66,35 @@ func main() {
         },
     })
 
+    var argWatch bool
     syncCmd := &cobra.Command{
         Use:    "sync <ikdoc> [url]",
         Short:  "sync ikdoc to a local or remote chain and verify",
-        Args:   cobra.MinimumNArgs(1),
+        Args:   cobra.MinimumNArgs(2),
         Run: func(cmd *cobra.Command, args []string) {
 
             var url = "";
             if len(args) > 1 { url = args[1] }
 
-            ikdoc.Sync(args[0], url)
+            for ;; {
+                _ ,err := ikdoc.Sync(args[0], url, argWatch)
+                if err != nil {
+                    if argWatch {
+                        log.Println(err);
+                        time.Sleep(5 * time.Second)
+                        continue
+                    }
+                    panic(err)
+                }
+
+                if !argWatch{
+                    break
+                }
+
+            }
         },
     }
+    syncCmd.Flags().BoolVarP(&argWatch, "watch",    "w",  false, "watch for changes")
     rootCmd.AddCommand(syncCmd);
 
 

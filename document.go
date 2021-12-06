@@ -651,3 +651,11 @@ func (doc *Document) VerifyDetached(searchdir string, ignoremissing bool, opts .
         return nil
     }
 }
+
+
+func RelatedFilePath(ikdoc, newExt string) string {
+    if !strings.HasSuffix(ikdoc, ".ikdoc") {
+        ikdoc  += ".ikdoc"
+    }
+    return ikdoc[:len(ikdoc)-len(".ikdoc")] + newExt
+}
