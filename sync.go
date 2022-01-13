@@ -20,10 +20,10 @@ import (
 )
 
 
-func Wait (ctx context.Context, vault identity.VaultI, document string, url string) {
+func Wait (ctx context.Context, vault identity.VaultI, document string, urls []string) {
 
     for ;; {
-        change, err := Sync(ctx, vault, document, url, true)
+        change, err := Sync(ctx, vault, document, urls, true)
         if err != nil {
             log.Println(err)
         }
@@ -39,18 +39,57 @@ func Wait (ctx context.Context, vault identity.VaultI, document string, url stri
             continue
         }
     }
-
 }
 
-func Sync(ctx context.Context, vault identity.VaultI, document string, url string, watch bool) (bool, error) {
 
-    if !strings.HasSuffix(url, "/") {
-        url += "/"
+
+
+// TODO this is dangerous because it might overwrite arbitrary local files
+func SyncDetachments(ctx context.Context, vault identity.VaultI, document string, urls []string) (error) {
+
+    docbytes, err := ioutil.ReadFile(document)
+    if err != nil { return fmt.Errorf("%s : %w", document, err) }
+
+    parent, err := ParseDocument(docbytes)
+    if err != nil { return (fmt.Errorf("%s : %w", document, err)) }
+
+    urls = append(urls, parent.BaseUrl...)
+
+    for _,v := range parent.Detached {
+        if strings.Contains(v.Name, "/") {
+            continue
+        }
+        fn := filepath.Join(filepath.Dir(document), v.Name)
+
+        nb , _ := httpdownload(ctx, vault, urls, v.Name, nil, false)
+        if nb != nil {
+            h := sha256.New()
+            h.Write([]byte(v.Name))
+            h.Write(nb)
+            if subtle.ConstantTimeCompare(v.Hash[:], h.Sum(nil)) != 1 {
+                return fmt.Errorf("%s : hash verification failed\n", v.Name)
+            }
+
+            if nb != nil {
+                err = ioutil.WriteFile(fn, nb, 0644)
+                if err != nil { return fmt.Errorf("%s : %v\n", fn, err) }
+            }
+        }
     }
+
+    err = parent.VerifyDetached(filepath.Dir(document), true, OptDump{Writer: os.Stdout})
+    if err != nil { return  err }
+    return  nil
+}
+
+
+func Sync(ctx context.Context, vault identity.VaultI, document string, urls []string, watch bool) (bool, error) {
 
     var hasupdatedsomething = false
 
     for ;; {
+
+        // read current checked out document
 
         docbytes, err := ioutil.ReadFile(document)
         if err != nil { return hasupdatedsomething, fmt.Errorf("%s : %w", document, err) }
@@ -63,67 +102,54 @@ func Sync(ctx context.Context, vault identity.VaultI, document string, url strin
         chaindir := filepath.Join(filepath.Dir(document), ".ikchain");
         os.MkdirAll(chaindir, os.ModePerm)
 
+        urls := append(urls, parent.BaseUrl...)
+
+        // try to get a nexthash from local .ikchain
+
         fn := filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash))
         nexthash, err := ioutil.ReadFile(fn)
         if err != nil || len(nexthash) == 0 {
-            if url != ""  {
-                nurl := url + ".ikchain/" + fmt.Sprintf("%x.next", parenthash)
-                fmt.Println("☎ remote", nurl)
-                nexthash, err = httpdownload(ctx, vault, nurl, watch && !hasupdatedsomething)
-                if err != nil { return hasupdatedsomething,(fmt.Errorf("%s : %v\n", nurl , err)) }
-            }
+
+            // otherwise try to get a nexthash from a sync
+
+            var path = ".ikchain/" + fmt.Sprintf("%x.next", parenthash)
+            nexthash, err = httpdownload(ctx, vault, urls, path, nexthash, watch && !hasupdatedsomething)
+            if err != nil { return hasupdatedsomething, err }
         }
 
-
+        // no nexthash. we're done
         if len(nexthash) == 0 {
-
             fmt.Printf("%s %x\n", color.GreenString("✔ latest"), parenthash)
 
-            if hasupdatedsomething && url != "" {
-                for _,v := range parent.Detached {
-                    if strings.Contains(v.Name, "/") {
-                        continue
-                    }
-                    fn := filepath.Join(filepath.Dir(document), v.Name)
-                    nurl := url + v.Name
-                    nb , err := httpdownload(ctx, vault, nurl, false)
-                    if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", nurl, err)) }
-
-                    h := sha256.New()
-                    h.Write([]byte(v.Name))
-                    h.Write(nb)
-                    if subtle.ConstantTimeCompare(v.Hash[:], h.Sum(nil)) != 1 {
-                        return false, fmt.Errorf("%s : hash verification failed\n", v.Name)
-                    }
-
-                    if nb != nil {
-                        err = ioutil.WriteFile(fn, nb, 0644)
-                        if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
-                    }
-                }
+            if hasupdatedsomething && len(urls) != 0 {
+                err := SyncDetachments(ctx, vault, document, urls)
+                if err != nil { return hasupdatedsomething, err }
             }
 
-            err = parent.VerifyDetached(filepath.Dir(document), true, OptDump{Writer: os.Stdout})
-            if err != nil { return hasupdatedsomething, err }
             return hasupdatedsomething, nil
         }
 
-
+        // try to get the object for nexthash from local .ikchain
         fn = filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
         log.Println("next is", fn);
         nextbytes, err := ioutil.ReadFile(fn)
-        if err != nil && url != "" {
-            nextbytes, err = httpdownload(ctx, vault, url + ".ikchain/" + strings.TrimSpace(string(nexthash)), false)
-            if err != nil { return hasupdatedsomething, (fmt.Errorf("%s : %v\n", fn, err)) }
+        if err != nil && len(urls) == 0 {
+            // otherwise download it
+            nextbytes, err = httpdownload(ctx, vault, urls, ".ikchain/" + strings.TrimSpace(string(nexthash)), nexthash, false)
         }
         if err != nil {
             return hasupdatedsomething, (fmt.Errorf("%s : %w", fn, err))
         }
 
+
+        // verify the next object is a successor
         _ , err = parent.VerifySuccessor(nextbytes, OptDump{Writer: os.Stdout})
         if err != nil {
             return hasupdatedsomething, err
         }
+
+
+        // SAFE FROM HERE
 
 
         fn = RelatedFilePath(document, ".iksecret")
@@ -161,12 +187,67 @@ func Sync(ctx context.Context, vault identity.VaultI, document string, url strin
     }
 }
 
-func httpdownload(ctx context.Context, vault identity.VaultI, url string, watch bool) ([]byte, error) {
+func httpdownload(
+        ctx context.Context,
+        vault identity.VaultI,
+        urls []string,
+        path string,
+        expectedhash []byte,
+        watch bool,
+    ) ([]byte, error) {
+
+
+    var err error
+    var b   []byte
+    var anyworked = false
+
+    for _, url := range urls {
+
+        if !strings.HasSuffix(url, "/") {
+            url += "/"
+        }
+        nurl := url + path
+        fmt.Println("☎ remote", nurl)
+
+        b , err = httpdownload2(ctx, vault, nurl, watch)
+        if err == nil {
+            anyworked = true
+            if b != nil {
+
+                if expectedhash != nil {
+                    h := sha256.New()
+                    h.Write(b)
+                    if subtle.ConstantTimeCompare(expectedhash[:], h.Sum(nil)) != 1 {
+                        err = fmt.Errorf("%s : hash verification failed", nurl)
+                        b = nil
+                        continue
+                    }
+                }
+
+                break
+            }
+        } else {
+            err = fmt.Errorf("%s : %v", nurl , err)
+        }
+    }
+
+    if !anyworked && err != nil { return nil, err }
+    return b, nil
+}
+
+
+func httpdownload2(
+        ctx context.Context,
+        vault identity.VaultI,
+        url string,
+        watch bool,
+    ) ([]byte, error) {
 
     tls, err := iktls.NewTlsClient(vault)
     if err != nil { return nil, err }
 
-    //TODO
+    // this is fine, we don't actually care about TLS for anything but passing firewalls
+    // the document we want is signed
     tls.InsecureSkipVerify = true
 
     client := &http.Client{Transport: &http.Transport{ TLSClientConfig: tls }}
