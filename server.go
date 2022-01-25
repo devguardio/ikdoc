@@ -1,7 +1,6 @@
 package ikdoc
 
 import (
-	"log"
 	"net/http"
     "strings"
     "path/filepath"
@@ -12,6 +11,7 @@ import (
     "github.com/fsnotify/fsnotify"
     "time"
     badrand "math/rand"
+    log "github.com/sirupsen/logrus"
 )
 
 func servefile(f *os.File, w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func Server(ikchaindir string) http.Handler {
         }
 
         upath = filepath.Join(ikchaindir, filepath.FromSlash(upath))
-        log.Println("request for", upath);
+        log.Println("[ikserv] request for", upath);
 
 
 

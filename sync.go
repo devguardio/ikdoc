@@ -15,8 +15,9 @@ import (
     "crypto/subtle"
     "time"
     badrand "math/rand"
-    "log"
     "context"
+    "encoding/hex"
+    log "github.com/sirupsen/logrus"
 )
 
 
@@ -25,7 +26,7 @@ func Wait (ctx context.Context, vault identity.VaultI, document string, urls []s
     for ;; {
         change, err := Sync(ctx, vault, document, urls, true)
         if err != nil {
-            log.Println(err)
+            log.Error(fmt.Errorf("ikdoc waiting for %s : %w ", document, err))
         }
 
         if change {
@@ -110,16 +111,16 @@ func Sync(ctx context.Context, vault identity.VaultI, document string, urls []st
         nexthash, err := ioutil.ReadFile(fn)
         if err != nil || len(nexthash) == 0 {
 
-            // otherwise try to get a nexthash from a sync
 
+            // otherwise try to get a nexthash from a sync
             var path = ".ikchain/" + fmt.Sprintf("%x.next", parenthash)
-            nexthash, err = httpdownload(ctx, vault, urls, path, nexthash, watch && !hasupdatedsomething)
+            nexthash, err = httpdownload(ctx, vault, urls, path, nil, watch && !hasupdatedsomething)
             if err != nil { return hasupdatedsomething, err }
         }
 
         // no nexthash. we're done
         if len(nexthash) == 0 {
-            fmt.Printf("%s %x\n", color.GreenString("✔ latest"), parenthash)
+            log.Printf("[ikdoc] %s %x\n", color.GreenString("✔ latest"), parenthash)
 
             if hasupdatedsomething && len(urls) != 0 {
                 err := SyncDetachments(ctx, vault, document, urls)
@@ -131,11 +132,20 @@ func Sync(ctx context.Context, vault identity.VaultI, document string, urls []st
 
         // try to get the object for nexthash from local .ikchain
         fn = filepath.Join(chaindir, strings.TrimSpace(string(nexthash)))
-        log.Println("next is", fn);
+        log.Println("[ikdoc] next is", fn);
         nextbytes, err := ioutil.ReadFile(fn)
-        if err != nil && len(urls) == 0 {
+        if err != nil && len(urls) != 0 {
+
+            nexthash := strings.TrimSpace(string(nexthash))
+            var decoded []byte
+            decoded, err = hex.DecodeString(nexthash)
+            if err != nil {
+                return hasupdatedsomething, err
+            }
+
+
             // otherwise download it
-            nextbytes, err = httpdownload(ctx, vault, urls, ".ikchain/" + strings.TrimSpace(string(nexthash)), nexthash, false)
+            nextbytes, err = httpdownload(ctx, vault, urls, ".ikchain/" + nexthash, decoded, false)
         }
         if err != nil {
             return hasupdatedsomething, (fmt.Errorf("%s : %w", fn, err))
@@ -183,7 +193,7 @@ func Sync(ctx context.Context, vault identity.VaultI, document string, urls []st
 
         hasupdatedsomething = true
 
-        fmt.Printf("%s %s\n", color.GreenString("✔ update"), nexthash)
+        log.Printf("[ikdoc] %s %s\n", color.GreenString("✔ update"), nexthash)
     }
 }
 
@@ -203,28 +213,32 @@ func httpdownload(
 
     for _, url := range urls {
 
+
         if !strings.HasSuffix(url, "/") {
             url += "/"
         }
         nurl := url + path
-        fmt.Println("☎ remote", nurl)
+        log.Println("[ikdoc] ☎ remote", nurl)
 
         b , err = httpdownload2(ctx, vault, nurl, watch)
-        if err == nil {
-            anyworked = true
-            if b != nil {
 
+        if err == nil {
+            if b != nil {
                 if expectedhash != nil {
                     h := sha256.New()
                     h.Write(b)
                     if subtle.ConstantTimeCompare(expectedhash[:], h.Sum(nil)) != 1 {
-                        err = fmt.Errorf("%s : hash verification failed", nurl)
+                        err = fmt.Errorf("%s : hash verification failed: %x", nurl, expectedhash[:])
+                        log.Error(fmt.Errorf("[ikdoc] remote %w", err))
                         b = nil
                         continue
                     }
                 }
 
+                anyworked = true
                 break
+            } else {
+                anyworked = true
             }
         } else {
             err = fmt.Errorf("%s : %v", nurl , err)

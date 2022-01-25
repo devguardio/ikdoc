@@ -16,6 +16,7 @@ import (
     "time"
     badrand "math/rand"
     "context"
+    "os/exec"
 )
 
 func main() {
@@ -114,19 +115,16 @@ func main() {
     syncCmd := &cobra.Command{
         Use:    "sync <ikdoc> [url]",
         Short:  "sync ikdoc to a local or remote chain and verify",
-        Args:   cobra.MinimumNArgs(2),
+        Args:   cobra.MinimumNArgs(1),
         Run: func(cmd *cobra.Command, args []string) {
 
             var ctx   = context.Background()
             var vault = identity.Vault()
 
-            var url = "";
-            if len(args) > 1 { url = args[1] }
-
             if argWatch {
-                 ikdoc.Wait(ctx, vault, args[0], url)
+                ikdoc.Wait(ctx, vault, args[0], args[1:])
             } else {
-                _ ,err := ikdoc.Sync(ctx, vault, args[0], url, argWatch)
+                _ ,err := ikdoc.Sync(ctx, vault, args[0], args[1:], argWatch)
                 if err != nil { panic(err) }
             }
         },
@@ -148,285 +146,337 @@ func main() {
     var argUnnamed  []string
     var argDetached = make(map[string]string)
 
-    var argRemove   []string
-
     var argParent   string
     var argUrl      []string
 
-    var common = func(editParent *ikdoc.Document, args []string) {
+    signCmd := &cobra.Command{
+        Use:        "sign <outfile> --message hello=world --seal file.txt",
+        Short:      "sign files and pack into a <filename>.ikdoc",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
 
-        var vault = identity.Vault()
-        if domain != "" { vault = vault.Domain(domain) }
-
-        id, err:= vault.Identity()
-        if err != nil { panic(err) }
-
-        var doc    *ikdoc.Document = &ikdoc.Document {}
-
-        var parentbytes []byte
-        if argParent != "" {
-            parentbytes, err = ioutil.ReadFile(argParent)
-            if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
-
-            parent, err := ikdoc.ParseDocument(parentbytes)
-            if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
-
-            doc = parent.NewSequence();
-        }
-
-        var sealkey, chainkey, ratchetkey identity.Secret
-        var hasRatchet = false
-
-        if len(argAttached) > 0 || len(argSeal) > 0 || (editParent != nil && editParent.Sealed != nil) {
-            if len(parentbytes) == 0  {
-                _, err := rand.Read(chainkey[:])
-                if err != nil { panic(err) }
-            } else {
-                fn := argParent[:len(argParent)-len(".ikdoc")] + ".iksecret"
-                b , err := ioutil.ReadFile(fn)
-                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-                _, chainkey , err = ikdoc.ResumeRatchetFromString(string(b))
-                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-            }
-
-            sealkey, _ , ratchetkey = ikdoc.Ratchet(parentbytes, chainkey[:])
-            hasRatchet = true
-            doc.Sealed = ikdoc.NewSealedDocument(sealkey[:])
-
-            doc.Sealed.Salt = make([]byte, 8)
-            _, err := rand.Read(doc.Sealed.Salt)
+            id, err:= vault.Identity()
             if err != nil { panic(err) }
 
-            for k,v := range argAttached{
-                err = doc.Sealed.WithAttached([]byte(v), k)
-                if err != nil { panic(err) }
-            }
-            for k,v := range argSeal {
-                v, err := os.ReadFile(v)
-                if err != nil { panic(err) }
+            var doc    *ikdoc.Document = &ikdoc.Document {}
 
-                err = doc.Sealed.WithAttached(v, k)
-                if err != nil { panic(err) }
-            }
-        }
+            var parentbytes []byte
+            if argParent != "" {
+                parentbytes, err = ioutil.ReadFile(argParent)
+                if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
-        // this just avoids chain collission
-        if argParent == "" && doc.Sealed == nil {
-            doc.Salt = make([]byte, 8)
-            _, err := rand.Read(doc.Salt)
-            if err != nil { panic(err) }
-        }
+                parent, err := ikdoc.ParseDocument(parentbytes)
+                if err != nil { panic(fmt.Errorf("%s : %w", argParent, err)) }
 
-        if editParent != nil {
-            yeet := make(map[string]bool)
-            for _,v := range argRemove {
-                yeet[v] = true
+                doc = parent.NewSequence();
             }
 
-            if editParent.Sealed != nil {
-                for _,v := range editParent.Sealed.Attached {
-                    if yeet[v.Name] { continue }
+            var sealkey, chainkey, ratchetkey identity.Secret
+            var hasRatchet = false
 
-                    err = doc.Sealed.WithAttached(v.Message, v.Name)
+            if len(argAttached) > 0 || len(argSeal) > 0 {
+                if len(parentbytes) == 0  {
+                    _, err := rand.Read(chainkey[:])
+                    if err != nil { panic(err) }
+                } else {
+                    fn := argParent[:len(argParent)-len(".ikdoc")] + ".iksecret"
+                    b , err := ioutil.ReadFile(fn)
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                    _, chainkey , err = ikdoc.ResumeRatchetFromString(string(b))
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                }
+
+                sealkey, _ , ratchetkey = ikdoc.Ratchet(parentbytes, chainkey[:])
+                hasRatchet = true
+                doc.Sealed = ikdoc.NewSealedDocument(sealkey[:])
+
+                doc.Sealed.Salt = make([]byte, 8)
+                _, err := rand.Read(doc.Sealed.Salt)
+                if err != nil { panic(err) }
+
+                for k,v := range argAttached{
+                    err = doc.Sealed.WithAttached([]byte(v), k)
+                    if err != nil { panic(err) }
+                }
+                for k,v := range argSeal {
+                    v, err := os.ReadFile(v)
+                    if err != nil { panic(err) }
+
+                    err = doc.Sealed.WithAttached(v, k)
                     if err != nil { panic(err) }
                 }
             }
 
-            for _,v := range editParent.Attached {
-                if yeet[v.Name] { continue }
-
-                err = doc.WithAttached(v.Message, v.Name)
+            // this just avoids chain collission
+            if argParent == "" && doc.Sealed == nil {
+                doc.Salt = make([]byte, 8)
+                _, err := rand.Read(doc.Salt)
                 if err != nil { panic(err) }
             }
 
-            // yeet empty sealed doc
-            if doc.Sealed != nil && len(doc.Sealed.Attached) == 0 && len(doc.Sealed.Detached) == 0 {
-                doc.Sealed = nil
+
+
+
+
+            for k,v := range argPlain{
+                err = doc.WithAttached([]byte(v), k)
+                if err != nil { panic(err) }
             }
-        }
 
+            for k,v := range argEmbed {
+                v, err := os.ReadFile(v)
+                if err != nil { panic(err) }
 
+                err = doc.WithAttached(v, k)
+                if err != nil { panic(err) }
+            }
 
-
-        for k,v := range argPlain{
-            err = doc.WithAttached([]byte(v), k)
-            if err != nil { panic(err) }
-        }
-
-        for k,v := range argEmbed {
-            v, err := os.ReadFile(v)
-            if err != nil { panic(err) }
-
-            err = doc.WithAttached(v, k)
-            if err != nil { panic(err) }
-        }
-
-        for k,v := range argDetached {
-            f, err := os.Open(v)
-            if err != nil { panic(err) }
-            defer f.Close();
-
-            err = doc.WithDetached(f, k)
-            if err != nil { panic(err) }
-        }
-        for _, n := range argUnnamed {
-            f, err := os.Open(n)
-            if err != nil { panic(err) }
-            defer f.Close();
-
-            err = doc.WithDetached(f, "")
-            if err != nil { panic(err) }
-        }
-
-        for _,v := range argUrl {
-            err = doc.WithBaseUrl(v)
-            if err != nil { panic(err) }
-        }
-
-        if !argAnon {
-            doc.Anchors = []identity.Identity{*id}
-        }
-
-        if !strings.HasSuffix(args[0], ".ikdoc") {
-            args[0] += ".ikdoc"
-        }
-
-        b, err := doc.EncodeAndSign(vault);
-        if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
-
-
-        if argChain {
-
-            chaindir := filepath.Join(filepath.Dir(args[0]), ".ikchain");
-            err = os.MkdirAll(chaindir, os.ModePerm)
-            if err != nil { panic(fmt.Errorf("%s : %w", chaindir, err)) }
-
-            hash := sha256.Sum256(b)
-            fn := filepath.Join(chaindir, fmt.Sprintf("%x", hash));
-            err = ioutil.WriteFile(fn, b, 0644)
-            if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-
-
-            if parentbytes != nil {
-                parenthash := sha256.Sum256(parentbytes)
-
-                fn := filepath.Join(chaindir, fmt.Sprintf("%x", parenthash));
-                err = ioutil.WriteFile(fn, parentbytes, 0644)
-                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-
-                fn = filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash));
-                f, err := os.OpenFile(fn, os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
-                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+            for k,v := range argDetached {
+                f, err := os.Open(v)
+                if err != nil { panic(err) }
                 defer f.Close();
 
-                _, err = f.Write([]byte(fmt.Sprintf("%x\n", hash)))
+                err = doc.WithDetached(f, k)
                 if err != nil { panic(err) }
             }
-        }
+            for _, n := range argUnnamed {
+                f, err := os.Open(n)
+                if err != nil { panic(err) }
+                defer f.Close();
 
-        f, err := os.OpenFile(args[0], os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
-        if err != nil {
-            if argChain && argParent == args[0] {
-                f, err = os.Create(args[0])
+                err = doc.WithDetached(f, "")
+                if err != nil { panic(err) }
             }
-        }
-        if err != nil {
-            panic(fmt.Errorf("%s : %w", args[0], err))
-        }
-        defer f.Close();
 
-        _, err = f.Write(b)
-        if err != nil { panic(err) }
+            for _,v := range argUrl {
+                err = doc.WithBaseUrl(v)
+                if err != nil { panic(err) }
+            }
 
-        if hasRatchet {
-            fn := args[0][:len(args[0])-len(".ikdoc")] + ".iksecret"
-            err = ioutil.WriteFile(fn, []byte(ratchetkey.ToString()), 0644)
-            if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-        }
-    }
-
-    signCmd := &cobra.Command{
-        Use:        "sign <outfile> -m hello=world -e file.txt",
-        Short:      "sign files and pack into a <filename>.ikdoc",
-        Args:       cobra.MinimumNArgs(1),
-        Run: func(cmd *cobra.Command, args []string) {
-            common(nil, args)
-        },
-    }
-    signCmd.Flags().StringToStringVarP(&argPlain,   "cleartext","M",  map[string]string{}, "attach a cleartext signed key value message")
-    signCmd.Flags().StringToStringVarP(&argAttached,"message",  "m",  map[string]string{}, "attach a sealed signed key value message")
-
-    signCmd.Flags().StringToStringVarP(&argEmbed,   "embed",    "E",  map[string]string{}, "embed a cleartext signed file")
-    signCmd.Flags().StringToStringVarP(&argSeal,    "seal",     "e",  map[string]string{}, "embed a sealed signed file")
-
-    signCmd.Flags().StringToStringVarP(&argDetached,"detached", "d",  map[string]string{}, "reference detached file")
-    signCmd.Flags().StringArrayVarP(&argUnnamed,    "unnamed",  "D",  []string{}, "reference unnamed detached file")
-
-    signCmd.Flags().BoolVarP(&argAnon,              "anon",     "a",  false, "do not reveal signee (also prevents sequencing)")
-    signCmd.Flags().StringVarP(&argParent,          "parent",   "p",  "", "document follows a previous document in a sequence")
-    signCmd.Flags().StringArrayVarP(&argUrl,        "base",     "b",  []string{}, "ikd sync base url")
-    signCmd.Flags().BoolVarP(&argChain,             "chain",    "c",  false, "record history in .ikchain for sync")
-    signCmd.Flags().BoolVarP(&argRekey,             "rekey",    "k",  false, "mix secret encryption key for next message")
-
-    rootCmd.AddCommand(signCmd);
-
-    editCmd := &cobra.Command{
-        Use:        "edit <outfile.ikdoc> -m hello=world -e file.txt",
-        Short:      "append to existing ikdoc (requires ikchain)",
-        Args:       cobra.MinimumNArgs(1),
-        Run: func(cmd *cobra.Command, args []string) {
-
-            argParent = args[0]
-            argChain  = true
-
-
-            f, err := ioutil.ReadFile(args[0])
-            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+            if !argAnon {
+                doc.Anchors = []identity.Identity{*id}
+            }
 
             if !strings.HasSuffix(args[0], ".ikdoc") {
                 args[0] += ".ikdoc"
             }
 
-            var hassecret = true
-            fn := args[0][:len(args[0])-len(".ikdoc")] + ".iksecret"
-            b, err := ioutil.ReadFile(fn)
+            b, err := doc.EncodeAndSign(vault);
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
 
-            var doc *ikdoc.Document
-            if err == nil {
-                hassecret = true
-                sealkey, _ , err := ikdoc.ResumeRatchetFromString(string(b))
+
+            if argChain {
+
+                chaindir := filepath.Join(filepath.Dir(args[0]), ".ikchain");
+                err = os.MkdirAll(chaindir, os.ModePerm)
+                if err != nil { panic(fmt.Errorf("%s : %w", chaindir, err)) }
+
+                hash := sha256.Sum256(b)
+                fn := filepath.Join(chaindir, fmt.Sprintf("%x", hash));
+                err = ioutil.WriteFile(fn, b, 0644)
                 if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
-                doc , err = ikdoc.ParseDocument(f, ikdoc.OptUnsealKey(sealkey))
-                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
-            } else {
-                hassecret = false
-                doc , err = ikdoc.ParseDocument(f)
-                if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+
+                if parentbytes != nil {
+                    parenthash := sha256.Sum256(parentbytes)
+
+                    fn := filepath.Join(chaindir, fmt.Sprintf("%x", parenthash));
+                    err = ioutil.WriteFile(fn, parentbytes, 0644)
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+
+                    fn = filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash));
+                    f, err := os.OpenFile(fn, os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
+                    if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+                    defer f.Close();
+
+                    _, err = f.Write([]byte(fmt.Sprintf("%x\n", hash)))
+                    if err != nil { panic(err) }
+                }
             }
 
-            if doc.Sealed != nil && !hassecret {
-                _, err := ioutil.ReadFile(fn)
+            f, err := os.OpenFile(args[0], os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
+            if err != nil {
+                if argChain && argParent == args[0] {
+                    f, err = os.Create(args[0])
+                }
+            }
+            if err != nil {
+                panic(fmt.Errorf("%s : %w", args[0], err))
+            }
+            defer f.Close();
+
+            _, err = f.Write(b)
+            if err != nil { panic(err) }
+
+            if hasRatchet {
+                fn := args[0][:len(args[0])-len(".ikdoc")] + ".iksecret"
+                err = ioutil.WriteFile(fn, []byte(ratchetkey.ToString()), 0644)
                 if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
             }
+        },
+    }
+    signCmd.Flags().StringToStringVar(&argPlain,   "plain", map[string]string{}, "attach a plain signed key value message")
+    signCmd.Flags().StringToStringVar(&argAttached,"message",   map[string]string{}, "attach a sealed signed key value message")
 
-            common(doc, args)
+    signCmd.Flags().StringToStringVar(&argEmbed,   "embed",     map[string]string{}, "embed a plain signed file")
+    signCmd.Flags().StringToStringVar(&argSeal,    "seal",      map[string]string{}, "embed a sealed signed file")
+
+    signCmd.Flags().StringToStringVar(&argDetached,"detached",  map[string]string{}, "reference detached file")
+    signCmd.Flags().StringArrayVar(&argUnnamed,    "unnamed",   []string{}, "reference unnamed detached file")
+
+    signCmd.Flags().BoolVar(&argAnon,              "anon",      false, "do not reveal signee (also prevents sequencing)")
+    signCmd.Flags().StringVar(&argParent,          "parent",    "", "document follows a previous document in a sequence")
+    signCmd.Flags().StringArrayVar(&argUrl,        "base",      []string{}, "ikd sync base url")
+    signCmd.Flags().BoolVar(&argChain,             "chain",     false, "record history in .ikchain for sync")
+    signCmd.Flags().BoolVar(&argRekey,             "rekey",     false, "mix secret encryption key for next message")
+
+    rootCmd.AddCommand(signCmd);
+
+
+
+
+
+    var argMessage  = make(map[string]string)
+    var argRemove   []string
+    var argClear    bool
+    var argExtern   []string
+
+    editCmd := &cobra.Command{
+        Use:        "edit <outfile.ikdoc> --remove hello --plain hello=world",
+        Short:      "append to existing ikdoc (requires ikchain)",
+        Args:       cobra.MinimumNArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+
+            var vault = identity.Vault()
+            if domain != "" { vault = vault.Domain(domain) }
+
+            docbytes, err := ioutil.ReadFile(args[0])
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+            fn := ikdoc.RelatedFilePath(args[0], ".iksecret")
+            secretbytes, _ := ioutil.ReadFile(fn)
+
+            editor, err := ikdoc.Edit(docbytes, secretbytes)
+
+            if argClear {
+                editor.Clear();
+            }
+
+            for _,v := range argRemove {
+                err := editor.Remove(v)
+                if err != nil { panic(err) }
+            }
+
+            for k,v := range argPlain{
+                err := editor.AppendPlaintextMessage(k, []byte(v))
+                if err != nil { panic(err) }
+            }
+
+            for k,v := range argMessage{
+                err := editor.AppendSealedMessage(k, []byte(v))
+                if err != nil { panic(err) }
+            }
+
+            for k,v := range argSeal {
+                v, err := os.ReadFile(v)
+                if err != nil { panic(err) }
+
+                err = editor.AppendSealedMessage(k, []byte(v))
+                if err != nil { panic(err) }
+            }
+
+            for k,v := range argEmbed {
+                v, err := os.ReadFile(v)
+                if err != nil { panic(err) }
+
+                err = editor.AppendPlaintextMessage(k, []byte(v))
+                if err != nil { panic(err) }
+            }
+
+            for _,v := range argExtern {
+                err = editor.Edit(v, func(msg []byte ) ([]byte, error) {
+
+                    file, err := ioutil.TempFile("", "*-" + v)
+                    if err != nil { return nil, err}
+                    file.Write(msg)
+                    defer os.Remove(file.Name())
+                    defer file.Close()
+
+                    exteditor := os.Getenv("EDITOR")
+                    if exteditor == "" {
+                        return nil, fmt.Errorf("EDITOR env var not set")
+                    }
+
+                    cmd := exec.Command(exteditor, file.Name())
+                    cmd.Stdin = os.Stdin
+                    cmd.Stdout = os.Stdout
+                    err = cmd.Run()
+                    if err != nil { return nil, err }
+
+                    return os.ReadFile(file.Name())
+                })
+                if err != nil { panic(err) }
+            }
+
+            nudocbytes, secret, err := editor.EncodeAndSign(vault);
+            if err != nil { panic(fmt.Errorf("%s : %w", args[0], err)) }
+
+
+            // ikchain
+
+            chaindir := filepath.Join(filepath.Dir(args[0]), ".ikchain");
+            err = os.MkdirAll(chaindir, os.ModePerm)
+            if err != nil { panic(fmt.Errorf("%s : %w", chaindir, err)) }
+
+            hash := sha256.Sum256(nudocbytes)
+            fn = filepath.Join(chaindir, fmt.Sprintf("%x", hash));
+            err = ioutil.WriteFile(fn, nudocbytes, 0644)
+            if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+
+
+            parenthash := sha256.Sum256(docbytes)
+
+            fn = filepath.Join(chaindir, fmt.Sprintf("%x", parenthash));
+            err = ioutil.WriteFile(fn, docbytes, 0644)
+            if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+
+            fn = filepath.Join(chaindir, fmt.Sprintf("%x.next", parenthash));
+            f, err := os.OpenFile(fn, os.O_RDWR | os.O_CREATE | os.O_EXCL, 0644)
+            if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+            defer f.Close();
+
+            _, err = f.Write([]byte(fmt.Sprintf("%x\n", hash)))
+            if err != nil { panic(err) }
+
+
+            // write doc
+
+            err = ioutil.WriteFile(args[0], nudocbytes, 0644)
+            if err != nil {
+                panic(fmt.Errorf("%s : %w", args[0], err))
+            }
+
+            if secret != nil {
+                fn := ikdoc.RelatedFilePath(args[0], ".iksecret")
+                err = ioutil.WriteFile(fn, []byte(secret.ToString()), 0644)
+                if err != nil { panic(fmt.Errorf("%s : %w", fn, err)) }
+            }
         },
     }
 
-    editCmd.Flags().StringToStringVarP(&argPlain,   "cleartext","M",  map[string]string{}, "attach a cleartext signed key value message")
-    editCmd.Flags().StringToStringVarP(&argAttached,"message",  "m",  map[string]string{}, "attach a sealed signed key value message")
 
-    editCmd.Flags().StringToStringVarP(&argEmbed,   "embed",    "E",  map[string]string{}, "embed a cleartext signed file")
-    editCmd.Flags().StringToStringVarP(&argSeal,    "seal",     "e",  map[string]string{}, "embed a sealed signed file")
+    editCmd.Flags().StringToStringVar(&argPlain,    "plain",    map[string]string{}, "attach a plain signed key value message")
+    editCmd.Flags().StringToStringVar(&argMessage,  "message",  map[string]string{}, "attach a sealed signed key value message")
 
-    editCmd.Flags().StringToStringVarP(&argDetached,"detached", "d",  map[string]string{}, "reference detached file")
-    editCmd.Flags().StringArrayVarP(&argUnnamed,    "unnamed",  "D",  []string{}, "reference unnamed detached file")
+    editCmd.Flags().StringToStringVar(&argEmbed,    "embed",    map[string]string{}, "embed a plain signed file")
+    editCmd.Flags().StringToStringVar(&argSeal,     "seal",     map[string]string{}, "embed a sealed signed file")
 
-    editCmd.Flags().BoolVarP(&argAnon,              "anon",     "a",  false, "do not reveal signee (also prevents sequencing)")
-    editCmd.Flags().StringArrayVarP(&argUrl,        "base",     "b",  []string{}, "ikd sync base url")
-    editCmd.Flags().BoolVarP(&argRekey,             "rekey",    "k",  false, "mix secret encryption key for next message")
+    editCmd.Flags().StringArrayVar  (&argRemove,    "remove",   []string{},  "remove any attachment with this key")
+    editCmd.Flags().BoolVar         (&argClear,     "clear",    false,       "remove all values")
 
-    editCmd.Flags().StringArrayVarP(&argRemove,     "remove",   "r",  []string{}, "remove any key before adding anything")
+    editCmd.Flags().StringArrayVar  (&argExtern,      "extern",   []string{},  "open in external EDITOR")
 
     rootCmd.AddCommand(editCmd);
 
