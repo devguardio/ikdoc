@@ -463,12 +463,30 @@ func (self *Document) encodeContent(w io.Writer) (error) {
     return nil
 }
 
+func (self *Document) Validate() error {
+
+    if len(self.Anchors) == 0 {
+        return fmt.Errorf("quorum not viable: no anchors")
+    }
+    if self.Quorum > 1 {
+        if int(self.Quorum) == len(self.Anchors) {
+            return fmt.Errorf("quorum not viable: must be < anchors , otherwise you cannot revoke a rogue anchor")
+        } else if int(self.Quorum) > len(self.Anchors) {
+            return fmt.Errorf("quorum not viable: it's larger than anchors")
+        }
+    }
+    return nil
+}
+
 func (self *Document) Encode() ([]byte, error) {
+
+    err := self.Validate()
+    if err != nil { return nil, err }
 
     var w = bytes.Buffer{}
     w.Write([]byte{'i','1', 0, 0, 0, 0 })
 
-    err := self.encodeContent(&w)
+    err = self.encodeContent(&w)
     if err != nil { return nil, err }
 
     var b = w.Bytes();

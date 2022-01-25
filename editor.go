@@ -74,6 +74,14 @@ func Edit(docbytes, secretbytes []byte) (*Editor, error) {
         if err != nil { panic(err) }
     }
 
+    for _,v := range self.parent.Anchors {
+        self.doc.Anchors = append(self.doc.Anchors, v)
+    }
+    self.doc.Quorum = self.parent.Quorum
+
+    for _,v := range self.parent.BaseUrl {
+        self.doc.BaseUrl = append(self.doc.BaseUrl, v)
+    }
 
     return self, nil
 }
@@ -185,6 +193,14 @@ func (self *Editor) makeSealed() error {
 }
 
 func (self *Editor) EncodeAndSign(s ik.Signer) (document []byte, secret *ik.Secret, err error) {
+
+    if len(self.doc.Anchors) == 0 {
+        id ,err := s.Identity()
+        if err != nil { return nil, nil, err }
+        self.doc.Quorum = 1
+        self.doc.Anchors = []ik.Identity{*id}
+    }
+
     doc, err := self.doc.EncodeAndSign(s)
     return doc, self.ratchet, err
 }
